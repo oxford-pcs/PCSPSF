@@ -8,6 +8,7 @@ from pupil import circle
 import ConfigParser
 import logging
 import copy
+from zmx_parser import wf
 
 def take2DFFT(im, method="fast", shift=True):
   ''' 
@@ -20,7 +21,8 @@ def take2DFFT(im, method="fast", shift=True):
   return im_fft, np.abs(im_fft), np.abs(im_fft)**2, np.angle(im_fft)
 
 if __name__== "__main__":
-  # Setup logger
+  
+  # Setup logger and plotting instance
   logger = logging.getLogger()
   logger.setLevel(logging.DEBUG)
   ch = logging.StreamHandler()
@@ -28,6 +30,8 @@ if __name__== "__main__":
   formatter = logging.Formatter("%(levelname)s:%(asctime)s:%(message)s")
   ch.setFormatter(formatter)
   logger.addHandler(ch)
+  
+  pl = plotter.plotter()
 
   # Get relevant configuration parameters
   cfg = ConfigParser.ConfigParser()
@@ -58,9 +62,11 @@ if __name__== "__main__":
   
   # construct pupil
   pupil = circle(pupil_osize/2, pupil_osize/2, pupil_osize, pupil_diameter/2)
+  pl._addImagePlot("pupil", pupil)
 
   # fft and shift to move from pupil to image space
   pupil_fft_shift, pupil_fft_shift_A, pupil_fft_shift_pow, pupil_fft_shift_p = take2DFFT(pupil, method="fast")
+  pl._addImagePlot("-> fft (amplitude)", pupil_fft_shift_A, extent=(-detector_FOV/2,detector_FOV/2,-detector_FOV/2,detector_FOV/2), xl="arcsec", yl="arcsec")
   
   # take a slice corresponding to half a resolution element
   logger.debug(" Taking slice of width γ/2 = " + str(PUPIL_GAM/2) + " pixels.")  
@@ -70,14 +76,15 @@ if __name__== "__main__":
 
   # fft back to pupil plane
   pupil_fft_shift_slice_fft, pupil_fft_shift_slice_fft_A, pupil_fft_shift_slice_fft_pow, pupil_fft_shift_slice_fft_p = take2DFFT(pupil_fft_shift_slice, method="fast", shift=False)
+  pl._addImagePlot("-> slice -> fft", pupil_fft_shift_slice_fft_A)
   
   # add WFE
+  wf1 = wf("DEFAULT.TXT", logger)
+  wf1.parse()
+  wfe = wf1.getData()
+  wfe_p = wfe*2*np.pi
+  pl._addImagePlot("wavefront phase error", wfe_p)
   
-  # plot
-  pl = plotter.plotter()
-  pl._addImagePlot("pupil", pupil)
-  pl._addImagePlot("-> fft (amplitude)", pupil_fft_shift_A, extent=(-detector_FOV/2,detector_FOV/2,-detector_FOV/2,detector_FOV/2), xl="arcsec", yl="arcsec")
-  pl._addImagePlot("-> slice -> fft", pupil_fft_shift_slice_fft_A)
   pl.draw(2,2)
 
 
