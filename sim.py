@@ -1,28 +1,106 @@
 #!/usr/local/bin/python
 # -*- coding: utf-8 -*-
 
-import numpy as np
 import random
-import plotter
-from pupil import circle
-import ConfigParser
 import logging
 import copy
-from zmx_parser import wf
+import ConfigParser
 
-def take2DFFT(im, method="fast", shift=True):
-  ''' 
-    returns fft, amplitude, phase and power
-  '''
-  if method == "fast":
-    im_fft = np.fft.fft2(im)
-  if shift:
-    im_fft = np.fft.fftshift(im_fft)
-  return im_fft, np.abs(im_fft), np.abs(im_fft)**2, np.angle(im_fft)
+import numpy as np
+
+import plotter
+from pupil import circle
+from zmx_parser import zwfe
+from util import sf
+
+class sim():
+  def __init__(self, logger, plotter, cfg_file):
+    self.logger 	= logger
+    self.plotter 	= plotter
+    self.cfg_file	= cfg_file
+
+  def run(self, wave, wfe_file, verbose=True):
+    """
+      Run the simulation.
+    """
+
+    # get configuration parameters
+    cfg = ConfigParser.ConfigParser()
+    cfg.read(self.cfg_file)
+    PUPIL_SAMPLING		= float(cfg.get("general", "pupil_sampling"))
+    PUPIL_GAMMA 		= float(cfg.get("general", "pupil_gamma"))
+    PUPIL_RADIUS 		= float(cfg.get("general", "pupil_radius_physical"))
+    PUPIL_RADIUS_UNIT		= str(cfg.get("general", "pupil_radius_physical_unit"))
+    N_AIRY_DIAMETERS		= int(cfg.get("plotting", "n_airy_diameters"))
+
+    try:
+      PUPIL_SAMPLING 	= int(PUPIL_SAMPLING)
+      PUPIL_GAMMA 	= int(PUPIL_GAMMA)
+      assert PUPIL_GAMMA % 2 == 0
+    except ValueError:
+      self.logger.warning(" PUPIL_SAMPLING and PUPIL_GAMMA should be an integer.")
+    except AssertionError:
+      self.logger.warning(" Pupil gamma should be even.")    
+    
+    # construct entrance pupil
+    pupil = circle(self.logger, PUPIL_SAMPLING, PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, wave, verbose=verbose)
+    pl._addImagePlot("pupil", pupil.getData(), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
+
+    # move from pupil to image space
+    pupil.do2DFFT(shift=True)
+    im_npix, detector_HFOV_scaled = pupil.getScaledPupilDescriptors(2)
+    pl._addImagePlot("-> fft (amplitude)", pupil.getFFTAmplitude()[(pupil.getData().shape[0]/2)-(im_npix/2):(pupil.getData().shape[0]/2)+(im_npix/2), \
+				  (pupil.getData().shape[0]/2)-(im_npix/2):(pupil.getData().shape[0]/2)+(im_npix/2)], \
+                                  extent=(-detector_HFOV_scaled,detector_HFOV_scaled,-detector_HFOV_scaled,detector_HFOV_scaled), xl="arcsec", yl="arcsec")
+    
+    # take a slice corresponding to half a resolution element
+    sw = pupil.takeSlice(.5)
+    pl._addScatterPlot("", [-pupil.im_resolution_element/(2*sw),-pupil.im_resolution_element/(2*sw)], [-detector_HFOV_scaled,detector_HFOV_scaled], 
+		       xr=(-detector_HFOV_scaled,detector_HFOV_scaled), yr=(-detector_HFOV_scaled,detector_HFOV_scaled), overplot=True)
+    pl._addScatterPlot("", [pupil.im_resolution_element/(2*sw),pupil.im_resolution_element/(2*sw)], [-detector_HFOV_scaled,detector_HFOV_scaled], overplot=True)
+        
+    # fft back to pupil plane
+    pupil.do2DFFT()
+    pl._addImagePlot("-> slice -> fft", pupil.getFFTAmplitude(), extent=pupil.getExtent(), xl=pupil.rad_unit, yl=pupil.rad_unit)
+    
+    # add WFE
+    wfe = zwfe(wfe_file, logger)
+    wfe.parse()
+    wfe_h = wfe.getHeader()
+    wfe_d = wfe.getData()
+    
+    ##TODO: pad/trim if uspcaling or downscaling pupil!
+    s = (pupil.rad*2)/wfe_h['EXIT_PUPIL_DIAMETER'] #how much bigger the pupil needs (multiple of pixel)
+    
+    p_g = (s)*PUPIL_SAMPLING		#TODO: mixture of sampling grids (pupil/wfe!)
+    nzeros = int(round(p_g/2))
+    
+    df = np.fft.fft2(wfe_d)
+    df = np.fft.fftshift(df)  
+    
+    #FIXME: doesn't preserve phase magnitude? (nzeros=0)
+    #df2 = df[(df.shape[0]/2)/2:-(df.shape[0]/2)/2,(df.shape[0]/2)/2:-(df.shape[0]/2)/2]
+    df2 = np.pad(df, nzeros, mode='constant')
+    df2ifft = np.fft.ifft2(df2)
+    df2ifft = np.abs(df2ifft)
+    
+    df2ifft = np.pad(df2ifft, 1024-((df2ifft.shape[0])/2), mode='constant')
+    wfed_p = df2ifft*np.pi
+    pl._addImagePlot("wavefront phase error", wfed_p, extent=(-pupil.physical_gsize/2,pupil.physical_gsize/2,-pupil.physical_gsize/2,pupil.physical_gsize/2),
+		     xl=pupil.rad_unit, yl=pupil.rad_unit)
+   
+   
+    pupil.addToPhase(wfed_p)
+    
+    # fft back to image plane
+    pupil.do2DFFT()
+    pl._addImagePlot("-> slice -> fft", pupil.getFFTAmplitude())
+    
+    pl.draw(3,3)
 
 if __name__== "__main__":
   
-  # Setup logger and plotting instance
+  # setup logger
   logger = logging.getLogger()
   logger.setLevel(logging.DEBUG)
   ch = logging.StreamHandler()
@@ -31,65 +109,7 @@ if __name__== "__main__":
   ch.setFormatter(formatter)
   logger.addHandler(ch)
   
-  pl = plotter.plotter()
+  pl = plotter.plotter()	# setup plotting
 
-  # Get relevant configuration parameters
-  cfg = ConfigParser.ConfigParser()
-  cfg.read("default.ini")
-  PUPIL_RAD 	= float(cfg.get("general", "pupil_radius"))		
-  PUPIL_GAM 	= int(cfg.get("general", "pupil_gamma"))
-  LAMBDA	= float(cfg.get("general", "lambda"))
-  GRID_UNIT	= str(cfg.get("general", "grid_unit"))
-
-  pupil_diameter	= PUPIL_RAD*2						# metres
-  pupil_osize 		= pupil_diameter*PUPIL_GAM				# metres
-  im_resolution		= np.degrees(LAMBDA/pupil_diameter)*3600		# "/resolution element
-  im_pscale		= im_resolution/PUPIL_GAM				# "/px
-  
-  if GRID_UNIT == "mm":
-    pupil_mfactor	= 1000
-    
-  pupil_diameter	= pupil_diameter*pupil_mfactor
-  pupil_osize 		= pupil_osize*pupil_mfactor
-  detector_FOV 		= im_pscale*pupil_osize
-
-  logger.debug(" Pupil diameter is " + str(pupil_diameter) + GRID_UNIT)
-  logger.debug(" Pupil plate scale is " + GRID_UNIT + "/px.")
-  logger.debug(" γ=" + str(PUPIL_GAM) + " (pixels per unit of angular resolution).")
-  logger.debug(" At a wavelength of " + str(LAMBDA*10**9) + "nm, this corresponds to:")
-  logger.debug(" - an image plate scale of " + str(im_pscale) + "\"/px.")
-  logger.debug(" - a detector FoV of " + str(detector_FOV) + "\".")
-  
-  # construct pupil
-  pupil = circle(pupil_osize/2, pupil_osize/2, pupil_osize, pupil_diameter/2)
-  pl._addImagePlot("pupil", pupil)
-
-  # fft and shift to move from pupil to image space
-  pupil_fft_shift, pupil_fft_shift_A, pupil_fft_shift_pow, pupil_fft_shift_p = take2DFFT(pupil, method="fast")
-  pl._addImagePlot("-> fft (amplitude)", pupil_fft_shift_A, extent=(-detector_FOV/2,detector_FOV/2,-detector_FOV/2,detector_FOV/2), xl="arcsec", yl="arcsec")
-  
-  # take a slice corresponding to half a resolution element
-  logger.debug(" Taking slice of width γ/2 = " + str(PUPIL_GAM/2) + " pixels.")  
-  pupil_fft_shift_slice = copy.deepcopy(pupil_fft_shift)
-  pupil_fft_shift_slice[0:(pupil_osize/2)-(PUPIL_GAM/2)] = 0
-  pupil_fft_shift_slice[(pupil_osize/2)+(PUPIL_GAM/2):] = 0
-
-  # fft back to pupil plane
-  pupil_fft_shift_slice_fft, pupil_fft_shift_slice_fft_A, pupil_fft_shift_slice_fft_pow, pupil_fft_shift_slice_fft_p = take2DFFT(pupil_fft_shift_slice, method="fast", shift=False)
-  pl._addImagePlot("-> slice -> fft", pupil_fft_shift_slice_fft_A)
-  
-  # add WFE
-  wf1 = wf("DEFAULT.TXT", logger)
-  wf1.parse()
-  wfe = wf1.getData()
-  wfe_p = wfe*2*np.pi
-  pl._addImagePlot("wavefront phase error", wfe_p)
-  
-  pl.draw(2,2)
-
-
-
-
-
-
-
+  s = sim(logger, plotter, "etc/default.ini")
+  s.run(801e-9, "etc/801_0_0_256x256")
