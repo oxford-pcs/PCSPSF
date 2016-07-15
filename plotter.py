@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pylab as plt
 import numpy as np
 
@@ -6,13 +8,13 @@ class plotter():
     self.NPLOTS = 0		# number of plots
     self.PLOTDATA = []		# plot information
     
-  def _addImagePlot(self, title, data, cb=True, extent=None, xl=None, yl=None, overplot=False):
-    self.PLOTDATA.append({"title": title, "data": data, "cb": cb, "type": "im", "extent": extent, "xl": xl, "yl": yl, "overplot": overplot})
+  def addImagePlot(self, title, data, cb=True, extent=None, xl=None, yl=None, overplot=False):
+    self.PLOTDATA.append({"title": title, "data": deepcopy(data), "cb": cb, "type": "im", "extent": extent, "xl": xl, "yl": yl, "overplot": overplot})
     if not overplot:
       self.NPLOTS = self.NPLOTS+1
       
-  def _addScatterPlot(self, title, y, x=None, color='w', ls='--', cb=True, xl=None, yl=None, xr=None, yr=None, overplot=False):  
-    self.PLOTDATA.append({"title": title, "x": x, "y": y, "color": color, "ls": ls, "cb": cb, "type": "scatter", "xl": xl, "yl": yl, "xr": xr, "yr": yr, "overplot": overplot})
+  def addScatterPlot(self, title, y, x=None, color='w', ls='--', cb=True, xl=None, yl=None, xr=None, yr=None, overplot=False):  
+    self.PLOTDATA.append({"title": title, "x": deepcopy(x), "y": deepcopy(y), "color": color, "ls": ls, "cb": cb, "type": "scatter", "xl": xl, "yl": yl, "xr": xr, "yr": yr, "overplot": overplot})
     if not overplot:
       self.NPLOTS = self.NPLOTS+1
       
@@ -48,6 +50,7 @@ class plotter():
 	   plt.xlim(d['xr'])
 	if d['yr'] is not None:
 	   plt.ylim(d['yr'])
+
     plt.tight_layout()
     plt.show()
     self._reset()

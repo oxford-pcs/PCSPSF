@@ -3,12 +3,15 @@ import codecs
 import numpy as np
 import pylab as plt
 
+from util import sf
+
 class zwfe():
-  def __init__(self, fname, logger):
+  def __init__(self, fname, logger, verbose=True):
     self.fname = fname
     self.logger = logger
     self.header = {"WAVE": None, "FIELD": None, "WAVE_EXP": None, "P2V": None, "RMS": None, "EXIT_PUPIL_DIAMETER": None, "SAMPLING": None, "CENTRE": None}
     self.data = None 
+    self.verbose = verbose
     
   def _decode(self, encoding):
     fp = codecs.open(self.fname, "r", encoding)
@@ -35,6 +38,7 @@ class zwfe():
 	self.header['RMS'] = float(line.split()[8].strip())
       if idx == 11:
 	self.header['EXIT_PUPIL_DIAMETER'] = float(line.split()[3].strip())
+	self.header['EXIT_PUPIL_DIAMETER_UNIT'] = str(line.split()[4].strip())
       if idx == 13:
 	self.header['SAMPLING'] = (int(line.split()[3].strip()), int(line.split()[5].strip()))
       if idx == 14:
@@ -75,8 +79,53 @@ class zwfe():
   def getHeader(self):
     return self.header 
   
-  def getData(self):
-    return self.data
+  def getData(self, in_radians=False, match_pupil=None):
+    '''
+       If a pupil instance is given, the data will be fourier rescaled to match. 			
+    '''
+    # translate unit to numerical quantity so output scale is physically meaningful
+    if match_pupil is not None:
+      if self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Millimeters":
+	gsize_mfactor = 1e-3
+      elif self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Meters":
+	gsize_mfactor = 1
+      else:
+	gsize_mfactor = 1e-3
+	self.logger.warning(" Unrecognised radius unit, assuming mm.")
+	
+      physical_exit_pupil_diameter = self.header['EXIT_PUPIL_DIAMETER']*gsize_mfactor
+      
+      wfe_plate_scale = physical_exit_pupil_diameter/self.data.shape[0]							# m/px	
+      
+      plate_scale_difference = wfe_plate_scale/(match_pupil.pupil_plate_scale*match_pupil.physical_gsize_mfactor)	# difference between plate scales
+      adjusted_pupil_size = plate_scale_difference*self.data.shape[0]							# required size of reshaped array
+      padding_required_post_fft = int(round((adjusted_pupil_size-self.data.shape[0])/2))				# padding required post fft (scale)
+      
+      if self.verbose:
+	self.logger.debug(" Pupil plate scale is: " + sf((match_pupil.pupil_plate_scale*match_pupil.physical_gsize_mfactor*1e3), 2) + "mm/px")
+	self.logger.debug(" WFE plate scale is: " + sf(wfe_plate_scale*1e3, 2) + "mm/px")
+      rescaled_data = np.fft.fft2(self.data)
+      rescaled_data = np.fft.fftshift(rescaled_data)    
+      if padding_required_post_fft > 0:
+        rescaled_data = np.pad(rescaled_data, padding_required_post_fft, mode='constant', constant_values=(0+0j))	
+      else:
+	self.logger.debug(" Pupil plate scale is coarser than WFE plate scale, pick a larger pupil sampling!")
+	exit(0)
+      rescaled_data = np.fft.ifft2(rescaled_data)
+      padding_required_post_ifft = (match_pupil.gsize-rescaled_data.shape[0])/2			# padding required post ifft (match entrance pupil array dimension)
+      rescaled_data = np.pad(rescaled_data, padding_required_post_ifft, mode='constant')
+      
+      rescaled_data = rescaled_data*(np.max(np.abs(self.data))/np.max(np.abs(rescaled_data)))
+      
+      if in_radians:
+        return np.abs(rescaled_data)*2*np.pi
+      else:		
+	return np.abs(rescaled_data)
+    else:
+      if in_radians:
+        return np.abs(self.data)*2*np.pi
+      else:
+	return np.abs(self.data)*2*np.pi
     
 	
 

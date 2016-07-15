@@ -5,13 +5,21 @@ import random
 import logging
 import copy
 import ConfigParser
+import os
 
 import numpy as np
+import pyfits
+import pyds9
 
 import plotter
-from pupil import circle
+from pupil import circular
 from zmx_parser import zwfe
 from util import sf
+
+def isPowerOfTwo(num):
+  while num % 2 == 0 and num > 1:
+    num = num/2
+  return num == 1
 
 class sim():
   def __init__(self, logger, plotter, cfg_file):
@@ -19,7 +27,7 @@ class sim():
     self.plotter 	= plotter
     self.cfg_file	= cfg_file
 
-  def run(self, wave, wfe_file, verbose=True):
+  def run(self, wave, wfe_file, plot=True, ds9=True, verbose=True):
     """
       Run the simulation.
     """
@@ -31,72 +39,68 @@ class sim():
     PUPIL_GAMMA 		= float(cfg.get("general", "pupil_gamma"))
     PUPIL_RADIUS 		= float(cfg.get("general", "pupil_radius_physical"))
     PUPIL_RADIUS_UNIT		= str(cfg.get("general", "pupil_radius_physical_unit"))
-    N_AIRY_DIAMETERS		= int(cfg.get("plotting", "n_airy_diameters"))
+    
+    SLICE_WIDTH			= float(cfg.get("slicing", "width"))				# in resolution elements
 
     try:
       PUPIL_SAMPLING 	= int(PUPIL_SAMPLING)
       PUPIL_GAMMA 	= int(PUPIL_GAMMA)
-      assert PUPIL_GAMMA % 2 == 0
     except ValueError:
-      self.logger.warning(" PUPIL_SAMPLING and PUPIL_GAMMA should be an integer.")
+      self.logger.critical(" PUPIL_SAMPLING and PUPIL_GAMMA should be an integer!")
+      exit(0)
+      
+    try:
+      assert PUPIL_GAMMA % 2 == 0
     except AssertionError:
       self.logger.warning(" Pupil gamma should be even.")    
-    
+      
+    try:
+      assert isPowerOfTwo(PUPIL_SAMPLING) == True
+    except AssertionError:
+      self.logger.critical(" Pupil sampling should be a power of two!")
+      exit(0)
+      
     # construct entrance pupil
-    pupil = circle(self.logger, PUPIL_SAMPLING, PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, wave, verbose=verbose)
-    pl._addImagePlot("pupil", pupil.getData(), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
-
-    # move from pupil to image space
-    pupil.do2DFFT(shift=True)
-    im_npix, detector_HFOV_scaled = pupil.getScaledPupilDescriptors(2)
-    pl._addImagePlot("-> fft (amplitude)", pupil.getFFTAmplitude()[(pupil.getData().shape[0]/2)-(im_npix/2):(pupil.getData().shape[0]/2)+(im_npix/2), \
-				  (pupil.getData().shape[0]/2)-(im_npix/2):(pupil.getData().shape[0]/2)+(im_npix/2)], \
-                                  extent=(-detector_HFOV_scaled,detector_HFOV_scaled,-detector_HFOV_scaled,detector_HFOV_scaled), xl="arcsec", yl="arcsec")
+    pupil = circular(self.logger, PUPIL_SAMPLING, PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, verbose=verbose)
+    pl.addImagePlot("pupil", pupil.getAmplitude(), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
     
-    # take a slice corresponding to half a resolution element
-    sw = pupil.takeSlice(.5)
-    pl._addScatterPlot("", [-pupil.im_resolution_element/(2*sw),-pupil.im_resolution_element/(2*sw)], [-detector_HFOV_scaled,detector_HFOV_scaled], 
-		       xr=(-detector_HFOV_scaled,detector_HFOV_scaled), yr=(-detector_HFOV_scaled,detector_HFOV_scaled), overplot=True)
-    pl._addScatterPlot("", [pupil.im_resolution_element/(2*sw),pupil.im_resolution_element/(2*sw)], [-detector_HFOV_scaled,detector_HFOV_scaled], overplot=True)
+    # move from pupil to image space
+    im = pupil.toConjugateImage(801e-9)
+    d, hfov = im.getAmplitudeScaledByAiryDiameters(3)
+    pl.addImagePlot("-> fft to image space (A)", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
+    
+    # take a slice from the image space
+    im.takeSlice(SLICE_WIDTH)
+    pl.addScatterPlot(None, [-(SLICE_WIDTH*im.im_resolution_element)/2, -(SLICE_WIDTH*im.im_resolution_element)/2], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
+    pl.addScatterPlot(None, [(SLICE_WIDTH*im.im_resolution_element)/2, (SLICE_WIDTH*im.im_resolution_element)/2], [-hfov, hfov], overplot=True)
         
     # fft back to pupil plane
-    pupil.do2DFFT()
-    pl._addImagePlot("-> slice -> fft", pupil.getFFTAmplitude(), extent=pupil.getExtent(), xl=pupil.rad_unit, yl=pupil.rad_unit)
+    im.toConjugatePupil()
+    pl.addImagePlot("-> take slice -> ifft to pupil space", pupil.getAmplitude(), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
     
     # add WFE
     wfe = zwfe(wfe_file, logger)
     wfe.parse()
     wfe_h = wfe.getHeader()
-    wfe_d = wfe.getData()
+    wfe_d = wfe.getData(match_pupil=pupil)	# returns data same dimensions as pupil array, in radians
     
-    ##TODO: pad/trim if uspcaling or downscaling pupil!
-    s = (pupil.rad*2)/wfe_h['EXIT_PUPIL_DIAMETER'] #how much bigger the pupil needs (multiple of pixel)
-    
-    p_g = (s)*PUPIL_SAMPLING		#TODO: mixture of sampling grids (pupil/wfe!)
-    nzeros = int(round(p_g/2))
-    
-    df = np.fft.fft2(wfe_d)
-    df = np.fft.fftshift(df)  
-    
-    #FIXME: doesn't preserve phase magnitude? (nzeros=0)
-    #df2 = df[(df.shape[0]/2)/2:-(df.shape[0]/2)/2,(df.shape[0]/2)/2:-(df.shape[0]/2)/2]
-    df2 = np.pad(df, nzeros, mode='constant')
-    df2ifft = np.fft.ifft2(df2)
-    df2ifft = np.abs(df2ifft)
-    
-    df2ifft = np.pad(df2ifft, 1024-((df2ifft.shape[0])/2), mode='constant')
-    wfed_p = df2ifft*np.pi
-    pl._addImagePlot("wavefront phase error", wfed_p, extent=(-pupil.physical_gsize/2,pupil.physical_gsize/2,-pupil.physical_gsize/2,pupil.physical_gsize/2),
-		     xl=pupil.rad_unit, yl=pupil.rad_unit)
-   
-   
-    pupil.addToPhase(wfed_p)
+    pl.addImagePlot("wfe (radians)", np.abs(wfe_d), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)	
+    pupil.addToPhase(wfe_d)
     
     # fft back to image plane
-    pupil.do2DFFT()
-    pl._addImagePlot("-> slice -> fft", pupil.getFFTAmplitude())
+    im = pupil.toConjugateImage(801e-9, shift=False)
+    d, hfov = im.getAmplitudeScaledByAiryDiameters(5)
+
+    pl.addImagePlot("-> fft to image space (A)", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
+ 
+    if plot:
+      pl.draw(3,2)
     
-    pl.draw(3,3)
+    if ds9:
+      pyfits.writeto("out.fits", d)
+      d = pyds9.DS9()
+      d.set("file out.fits")
+      os.remove("out.fits")
 
 if __name__== "__main__":
   
@@ -112,4 +116,4 @@ if __name__== "__main__":
   pl = plotter.plotter()	# setup plotting
 
   s = sim(logger, plotter, "etc/default.ini")
-  s.run(801e-9, "etc/801_0_0_256x256")
+  s.run(801e-9, "etc/801_0_0_256x256", plot=True, ds9=False)
