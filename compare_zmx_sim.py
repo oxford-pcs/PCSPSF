@@ -5,7 +5,7 @@
   
   1) Ensure the parameters are correct (wfno etc.) in default.ini
   2) Generate an output file with the -f flag, e.g. sampling 256, gamma 8. Ensure verbose (-v) option is set
-  3) Get per pixel spatial resolution and size of detector (micron)
+  3) Get per pixel spatial resolution and size of detector (micron) from console output
   4) In Zemax, go to Analysis > FFT PSF
   5) In the settings, adjust the image delta and sampling to match both the pixel spatial resolution and the size of the detector
   6) Output the file (Window > Text)
@@ -38,18 +38,19 @@ d_zemax = np.roll(d_zemax, 1, axis=1)
 hdulist = pyfits.open(sys.argv[2])
 d_sim = hdulist[0].data
 
-d_sim = d_sim**2			# because zemax "linear" data is the power spectrum!
-
 diff = d_sim - d_zemax
 
 plt.figure()
 plt.subplot(131)
+plt.title("Zemax Data")
 plt.imshow(d_zemax, interpolation="None")
 plt.colorbar()
 plt.subplot(132)
+plt.title("Python simulated Data")
 plt.imshow(d_sim, interpolation="None")
 plt.colorbar()
 plt.subplot(133)
+plt.title("Difference")
 plt.imshow(diff, interpolation="None")
 plt.colorbar()
 plt.tight_layout()

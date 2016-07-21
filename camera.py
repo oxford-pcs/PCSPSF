@@ -6,7 +6,7 @@ class camera():
     self.s_detector_FOV		= None
     self.s_airy_disk_d		= None
     
-  def calcSpatialParameters(self, im):
+  def populateSpatialParameters(self, im):
     self.s_resolution_element	= self.wfno*im.wave*1e6				# micron/resolution element
     self.s_pscale		= self.s_resolution_element/im.pupil.gamma	# micron/px
     self.s_detector_FOV 	= self.s_pscale*im.pupil.gsize			# micron

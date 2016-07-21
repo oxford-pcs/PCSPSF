@@ -162,7 +162,7 @@ class sim():
       h.append(('CRPIX2', 0.5))
       h.append(('CUNIT2', "arcsec"))
       h.append(('CTYPE2', "PARAM"))
-      pyfits.writeto("out.fits", im.getAmplitude(shift=False, normalise=True), h)
+      pyfits.writeto("out.fits", im.getAmplitude(power=True, shift=False, normalise=True), h)
       
       if ds9:
 	d = pyds9.DS9()

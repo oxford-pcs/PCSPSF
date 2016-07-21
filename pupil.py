@@ -40,8 +40,10 @@ class pupil(object):
   def getData(self, npix=None):
     return self.data
 
-  def getAmplitude(self, shift=False, scale="linear", normalise=False):
+  def getAmplitude(self, power=False, shift=False, scale="linear", normalise=False):
     d = np.abs(self.data)
+    if power:
+      d = d**2
     if scale != 'linear':
       if scale == 'log':
 	d = np.log10(d)
@@ -144,7 +146,7 @@ class circular(pupil):
       self.detector_FOV 	= self.pscale*self.pupil.gsize										# deg
       self.airy_disk_d		= 2.44*self.resolution_element										# "
       
-      self.pupil.camera.calcSpatialParameters(self)
+      self.pupil.camera.populateSpatialParameters(self)
       
       if self.pupil.verbose:
 	self.pupil.logger.debug(" At a wavelength of " + str(self.wave*10**9) + "nm, a system with a focal ratio of " + str(self.pupil.camera.wfno) + " with a circular aperture would have the following properties:")
@@ -156,8 +158,10 @@ class circular(pupil):
     def getDetectorHFOV(self):
       return self.detector_FOV/2.
 
-    def getAmplitude(self, shift=False, normalise=False, scale="linear"):
+    def getAmplitude(self, power=False, shift=False, normalise=False, scale="linear"):
       d = np.abs(self.data)
+      if power:
+        d = d**2
       if scale != "linear":
 	if scale == "log":
 	  d = np.log10(d)
