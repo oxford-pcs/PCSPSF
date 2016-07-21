@@ -1,12 +1,15 @@
 #!/usr/local/bin/python
 # -*- coding: utf-8 -*-
+from copy import deepcopy
+
 import numpy as np
 
 from util import sf
 
 class pupil(object):
-  def __init__(self, logger, sampling, gamma, verbose=True):
+  def __init__(self, logger, camera, sampling, gamma, verbose=True):
     self.logger		 	= logger
+    self.camera			= camera
     self.sampling 		= sampling					# sampling size for pupil (pixels)
     self.gamma 			= gamma						# factor by which to pad the grid (==number of pixels per resolution element in image plane)
     self.gsize			= self.sampling*self.gamma			# size of padded grid in pixels
@@ -36,13 +39,43 @@ class pupil(object):
 
   def getData(self, npix=None):
     return self.data
+
+  def getAmplitude(self, shift=False, scale="linear", normalise=False):
+    d = np.abs(self.data)
+    if scale != 'linear':
+      if scale == 'log':
+	d = np.log10(d)
+      else:
+	self.logger.warning(" Unrecognised scale keyword, assuming linear")
+    if normalise:
+      d = (d-np.min(d))/(np.max(d)-np.min(d))
+    if shift:
+      d = np.fft.fftshift(d)
+    return d
   
-  def getAmplitude(self):
-    return np.abs(self.data)
-    
-  def getPhase(self):
+  def getPhase(self, shift=False):
+    if shift:
+      return np.angle(np.fft.fftshift(self.data))
     return np.angle(self.data)
-   
+  
+  def getRealComponent(self, shift=False, normalise=False):
+    d = deepcopy(self.data)
+    if shift:
+      d = np.fft.fftshift(d)
+    re = np.real(d)
+    if normalise:
+      re = (re-np.min(re))/(np.max(re)-np.min(re))
+    return re
+    
+  def getImagComponent(self, shift=False, normalise=False):
+    d = deepcopy(self.data)
+    if shift:
+      d = np.fft.fftshift(d)
+    im = np.imag(d)
+    if normalise:
+      im = (im-np.min(im))/(np.max(im)-np.min(im))
+    return im
+      
   def getExtent(self):
     ''' 
       Returns an extent with real units for image plots.
@@ -56,10 +89,10 @@ class pupil(object):
     pass
   
 class circular(pupil): 
-  def __init__(self, logger, sampling, gamma, rad, rad_unit, verbose=True):
-    super(circular, self).__init__(logger, sampling, gamma, verbose)
+  def __init__(self, logger, camera, sampling, gamma, rad, physical_gsize_unit, verbose=True):
+    super(circular, self).__init__(logger, camera, sampling, gamma, verbose)
     self.rad 					= rad
-    self.physical_gsize_unit 			= rad_unit
+    self.physical_gsize_unit 			= physical_gsize_unit
     self.physical_entrance_diameter		= self.rad*2					# physical diameter of entrance pupil in units of [physical_gsize_unit]
     self.physical_gsize 			= self.physical_entrance_diameter*self.gamma	
     self.pupil_plate_scale			= self.physical_entrance_diameter/sampling
@@ -91,7 +124,7 @@ class circular(pupil):
     
     re = mag * np.cos(phase)
     im = mag * np.sin(phase)
-    
+
     self.data = re + 1j * im
     
   def toConjugateImage(self, wave, shift=True):   
@@ -106,27 +139,55 @@ class circular(pupil):
       self.wave	= wave
       self.data = i_data
       
-      self.im_resolution_element	= np.degrees(self.wave/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
-      self.im_pscale			= self.im_resolution_element/self.pupil.gamma								# "/px
-      self.detector_FOV 		= self.im_pscale*self.pupil.gsize									# deg
-      self.airy_disk_d			= 2.44*self.im_resolution_element									# "
+      self.resolution_element	= np.degrees(self.wave/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
+      self.pscale		= self.resolution_element/self.pupil.gamma								# "/px
+      self.detector_FOV 	= self.pscale*self.pupil.gsize										# deg
+      self.airy_disk_d		= 2.44*self.resolution_element										# "
+      
+      self.pupil.camera.calcSpatialParameters(self)
+      
       if self.pupil.verbose:
-	self.pupil.logger.debug(" At a wavelength of " + str(self.wave*10**9) + "nm, a circular aperture would have the following properties:")
-	self.pupil.logger.debug(" -> " + sf(self.im_resolution_element, 2) + "\"" + " per resolution element (λ/D)")
-	self.pupil.logger.debug(" -> " + sf(self.im_pscale, 2) + "\" per pixel (with γ=" + str(self.pupil.gamma) + " pixels per resolution element)")
-	self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 2) + "\"")
-	self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 2) + "\"")
+	self.pupil.logger.debug(" At a wavelength of " + str(self.wave*10**9) + "nm, a system with a focal ratio of " + str(self.pupil.camera.wfno) + " with a circular aperture would have the following properties:")
+	self.pupil.logger.debug(" -> " + sf(self.resolution_element, 4) + "\"" + " (" + sf(self.pupil.camera.s_resolution_element, 4) + "μm)" + " per resolution element λ/D")
+	self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel (with γ=" + str(self.pupil.gamma) + " pixels per resolution element)")
+	self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 4) + "\"" + " (" + sf(self.pupil.camera.s_detector_FOV, 6) + "μm)")
+	self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 4) + "\"" + " (" + sf(self.pupil.camera.s_airy_disk_d, 4) + "μm)")
      
     def getDetectorHFOV(self):
       return self.detector_FOV/2.
 
-    def getAmplitude(self):
-      return np.abs(self.data)
+    def getAmplitude(self, shift=False, normalise=False, scale="linear"):
+      d = np.abs(self.data)
+      if scale != "linear":
+	if scale == "log":
+	  d = np.log10(d)
+	else:
+	  self.pupil.logger.warning(" Unrecognised scale keyword, assuming linear")
+      if normalise:
+	d = (d-np.min(d))/(np.max(d)-np.min(d))
+      if shift:
+	d = np.fft.fftshift(d)
+      return d
     
-    def getPhase(self):
-      return np.angle(self.data)
-    
-    def getAmplitudeScaledByAiryDiameters(self, n_airy_diameters):
+    def getRealComponent(self, shift=False, normalise=False):
+      d = deepcopy(self.data)
+      if shift:
+	d = np.fft.fftshift(d)
+      re = np.real(d)
+      if normalise:
+	re = (re-np.min(re))/(np.max(re)-np.min(re))
+      return re
+      
+    def getImagComponent(self, shift=False, normalise=False):
+      d = deepcopy(self.data)
+      if shift:
+	d = np.fft.fftshift(d)
+      im = np.imag(d)
+      if normalise:
+	im = (im-np.min(im))/(np.max(im)-np.min(im))
+      return im
+      
+    def getAmplitudeScaledByAiryDiameters(self, n_airy_diameters, shift=False, normalise=False, scale="linear"):
       '''
         Constructs a scaled image with only [n_airy_diameters] shown. Useful for plotting.
         
@@ -138,24 +199,31 @@ class circular(pupil):
       if self.pupil.verbose:
 	self.pupil.logger.debug(" Using innermost " + str(im_npix) + " pixels, giving a detector scaled HFOV of " + str(detector_HFOV_scaled) + "\".")
 	
-      return self.getAmplitude()[(self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2), (self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2)], detector_HFOV_scaled
+      return self.getAmplitude(shift, normalise, scale)[(self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2), (self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2)], detector_HFOV_scaled
     
-    def takeSlice(self, width_el):
+    def takeSlice(self, width_el, offset=0):
       '''
-	Takes a slice of width [width_el] resolution elements from centre.
+	Takes a slice of width [width_el] resolution element, offset by [offset] resolution elements from the centre.
 	
 	Pads the rest of the array with zeros.
       '''
       self.half_slice_width = int(self.pupil.gamma*width_el)		# in pixels
-      if self.half_slice_width % 2 != 0:
-	self.pupil.logger.critical(" Half slice width is not an even number of pixels!")
+      self.offset_res = int(self.pupil.gamma*offset)			# in pixels
+      try:
+	assert self.half_slice_width % 2 == 0
+	assert self.offset_res % 2 == 0
+      except AssertionError:
+	self.pupil.logger.critical(" Either the half slice width or offset does not correspond to an even number of pixels!")
 	exit(0)
       if self.pupil.verbose:
-	self.pupil.logger.debug(" Taking slice of width " + str(width_el) + "γ = " + str(self.half_slice_width) + " pixels.")  
-      self.data[0:(self.pupil.gsize/2)-(self.half_slice_width/2)] = 0
-      self.data[(self.pupil.gsize/2)+(self.half_slice_width/2):] = 0   
+	self.pupil.logger.debug(" Taking slice of width " + str(width_el) + "γ = " + str(self.half_slice_width) + " pixels with an offset of " + str(self.offset_res) + " pixels.")  
+      self.data[0:(self.pupil.gsize/2)-(self.half_slice_width/2)+self.offset_res] = 0
+      self.data[(self.pupil.gsize/2)+(self.half_slice_width/2)+self.offset_res:] = 0   
       
-    def toConjugatePupil(self, shift=False):   
-      self.pupil.data = np.fft.ifft2(self.data)
-      if shift:
-	self.pupil.data = np.fft.fftshift(self.pupil.data)   
+    def toConjugatePupil(self, ishift=True):   
+      new_pupil = circular(self.pupil.logger, self.pupil.camera, self.pupil.sampling, self.pupil.gamma, self.pupil.rad, self.pupil.physical_gsize_unit, self.pupil.verbose)
+      new_pupil.data = self.data
+      if ishift:
+	new_pupil.data = np.fft.ifftshift(new_pupil.data)   
+      new_pupil.data = np.fft.ifft2(self.data)
+      return new_pupil
