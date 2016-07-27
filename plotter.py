@@ -28,7 +28,7 @@ class plotter():
         plt.title(d['title'], fontsize=12)
         nplot = nplot+1
       if d['type'] == 'im':
-	plt.imshow(d['data'], extent=d['extent'], interpolation='none')
+	plt.imshow(d['data'], extent=d['extent'], interpolation="none")
 	if d['xl'] is not None:
 	   plt.xlabel(d['xl'], fontsize=12)
 	if d['yl'] is not None:

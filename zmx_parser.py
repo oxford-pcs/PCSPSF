@@ -96,7 +96,7 @@ class zfftpsf():
   def getHeader(self):
     return self.header 
   
-  def getData(self, in_radians=False, match_pupil=None):
+  def getData(self):
     return np.array(self.data)
 
 class zwfe():
@@ -174,12 +174,17 @@ class zwfe():
   def getHeader(self):
     return self.header 
   
-  def getData(self, in_radians=False, match_pupil=None):
+  def getData(self, in_radians=False, resize_pupil=None, pad_pupil=None, shift=True):
     '''
-       If a pupil instance is given, the data will be fourier scaled.
+       If a pupil instance is given to resize_pupil, the data will be fourier scaled using 
+         the exit pupil diameter to match the specified pupil grid intervals, OR
+       If a pupil instance is given to pad_pupil, the data will be padded to match, this 
+         only really makes sense if the specified pupil has the same sampling!
     '''
     # translate unit to numerical quantity so output scale is physically meaningful
-    if match_pupil is not None:
+    data = self.data
+    
+    if resize_pupil is not None:
       if self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Millimeters":
 	gsize_mfactor = 1e-3
       elif self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Meters":
@@ -190,38 +195,40 @@ class zwfe():
 	
       physical_exit_pupil_diameter = self.header['EXIT_PUPIL_DIAMETER']*gsize_mfactor
       
-      wfe_plate_scale = physical_exit_pupil_diameter/self.data.shape[0]							# m/px	
+      wfe_plate_scale = physical_exit_pupil_diameter/data.shape[0]							# m/px	
       
-      plate_scale_difference = wfe_plate_scale/(match_pupil.pupil_plate_scale*match_pupil.physical_gsize_mfactor)	# difference between plate scales
-      adjusted_pupil_size = plate_scale_difference*self.data.shape[0]							# required size of reshaped array
-      padding_required_post_fft = int(round((adjusted_pupil_size-self.data.shape[0])/2))				# padding required post fft (scale)
+      plate_scale_difference = wfe_plate_scale/(resize_pupil.pupil_plate_scale*resize_pupil.physical_gsize_mfactor)	# difference between plate scales
+      adjusted_pupil_size = plate_scale_difference*data.shape[0]							# required size of reshaped array
+      padding_required_post_fft = int(round((adjusted_pupil_size-data.shape[0])/2))					# padding required post fft (scale)
       
       if self.verbose:
-	self.logger.debug(" Pupil plate scale is: " + sf((match_pupil.pupil_plate_scale*match_pupil.physical_gsize_mfactor*1e3), 2) + "mm/px")
+	self.logger.debug(" Pupil plate scale is: " + sf((resize_pupil.pupil_plate_scale*resize_pupil.physical_gsize_mfactor*1e3), 2) + "mm/px")
 	self.logger.debug(" WFE plate scale is: " + sf(wfe_plate_scale*1e3, 2) + "mm/px")
-      rescaled_data = np.fft.fft2(self.data)
-      rescaled_data = np.fft.fftshift(rescaled_data)    
+      data = np.fft.fft2(data)
+      data = np.fft.fftshift(data)    
       if padding_required_post_fft > 0:
-        rescaled_data = np.pad(rescaled_data, padding_required_post_fft, mode='constant')	
+        data = np.pad(data, padding_required_post_fft, mode='constant')	
       else:
 	self.logger.debug(" Pupil plate scale is coarser than WFE plate scale, pick a larger pupil sampling!")
 	exit(0)
-      rescaled_data = np.fft.ifft2(rescaled_data)
-      padding_required_post_ifft = (match_pupil.gsize-rescaled_data.shape[0])/2			# padding required post ifft (match entrance pupil array dimension)
-      rescaled_data = np.pad(rescaled_data, padding_required_post_ifft, mode='constant')
+      data = np.fft.ifft2(data)
+      padding_required_post_ifft = (resize_pupil.gsize-data.shape[0])/2			# padding required post ifft (match entrance pupil array dimension)
+      data = np.pad(data, padding_required_post_ifft, mode='constant')
       
-      rescaled_data = rescaled_data*(np.max(np.abs(self.data))/np.max(np.abs(rescaled_data)))
+      data = data*(np.max(np.abs(data))/np.max(np.abs(data)))  
+    elif pad_pupil is not None:
+      pad_by = (pad_pupil.sampling*(pad_pupil.gamma-1))/2
+      data = np.pad(data, pad_by, mode='constant')
       
-      if in_radians:
-        return np.abs(rescaled_data)*2*np.pi
-      else:		
-	return np.abs(rescaled_data)
+    if shift:
+      data = np.fft.fftshift(data)
+    if in_radians:
+      return np.abs(data)*2*np.pi
     else:
-      if in_radians:
-        return np.abs(self.data)*2*np.pi
-      else:
-	return np.abs(self.data)*2*np.pi
+      return np.abs(data)*2*np.pi
     
+    
+          
 	
 
 	

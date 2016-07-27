@@ -11,13 +11,13 @@ import argparse
 import time
 
 import numpy as np
-import pyfits
 import pyds9
 
 import plotter
 from pupil import circular
 from camera import camera
 from zmx_parser import zwfe
+from products import cube
 from util import sf
 
 def isPowerOfTwo(num):
@@ -26,150 +26,130 @@ def isPowerOfTwo(num):
   return num == 1
 
 class sim():
-  def __init__(self, logger, plotter, cfg_file):
-    self.logger 	= logger
-    self.plotter 	= plotter
-    self.cfg_file	= cfg_file
-
-  def run(self, wave, wfe_file, plot=True, fits=True, ds9=False, verbose=True):
+  def __init__(self, logger, plotter, nwaves, CAMERA_FWNO, PUPIL_SAMPLING, 
+	       PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, ADD_WFE, DO_SLICING, 
+	       NSLICES, SLICE_WIDTH):
+    self.logger 		= logger
+    self.plotter 		= plotter
+    self.nwaves			= nwaves
+    self.CAMERA_FWNO		= CAMERA_FWNO
+    self.PUPIL_SAMPLING 	= PUPIL_SAMPLING
+    self.PUPIL_GAMMA		= PUPIL_GAMMA
+    self.PUPIL_RADIUS		= PUPIL_RADIUS
+    self.PUPIL_RADIUS_UNIT	= PUPIL_RADIUS_UNIT
+    self.ADD_WFE		= ADD_WFE
+    self.DO_SLICING		= DO_SLICING
+    self.NSLICES		= NSLICES
+    self.SLICE_WIDTH		= SLICE_WIDTH
+    
+    self.datacube		= cube(self.logger, shape=[self.nwaves, self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA])
+   
+  def run(self, wave, wfe_file, plot=True, verbose=True):
     """
       Run the simulation.
     """
-
-    # get configuration parameters
-    cfg = ConfigParser.ConfigParser()
-    cfg.read(self.cfg_file)
-    CAMERA_FWNO			= float(cfg.get("camera", "wfno"))
-    
-    PUPIL_SAMPLING		= float(cfg.get("pupil", "pupil_sampling"))
-    PUPIL_GAMMA 		= float(cfg.get("pupil", "pupil_gamma"))
-    PUPIL_RADIUS 		= float(cfg.get("pupil", "pupil_radius_physical"))
-    PUPIL_RADIUS_UNIT		= str(cfg.get("pupil", "pupil_radius_physical_unit"))
-    
-    ADD_WFE			= bool(int(cfg.get("wfe", "do")))
-
-    DO_SLICING			= bool(int(cfg.get("slicing", "do")))
-    NSLICES			= int(cfg.get("slicing", "number"))
-    SLICE_WIDTH			= float(cfg.get("slicing", "width"))				# in resolution elements
-
     try:
-      PUPIL_SAMPLING 	= int(PUPIL_SAMPLING)
-      PUPIL_GAMMA 	= int(PUPIL_GAMMA)
+      self.PUPIL_SAMPLING 	= int(self.PUPIL_SAMPLING)
+      self.PUPIL_GAMMA 		= int(self.PUPIL_GAMMA)
     except ValueError:
       self.logger.critical(" PUPIL_SAMPLING and PUPIL_GAMMA should be an integer!")
       exit(0)
       
     try:
-      assert PUPIL_GAMMA % 2 == 0
+      assert self.PUPIL_GAMMA % 2 == 0
     except AssertionError:
       self.logger.warning(" Pupil gamma should be even. Could produce unexpected results.")    
       
     try:
-      assert NSLICES % 2 == 1
+      assert self.NSLICES % 2 == 1
     except AssertionError:
       self.logger.critical(" Number of slices should be odd!")
       exit(0)
       
     try:
-      assert isPowerOfTwo(PUPIL_SAMPLING) == True
+      assert isPowerOfTwo(self.PUPIL_SAMPLING) == True
     except AssertionError:
       self.logger.critical(" Pupil sampling should be a power of two!")
       exit(0)
       
-    # instantiate camera and entrance pupil
-    cam = camera(CAMERA_FWNO)
-    pupil = circular(self.logger, cam, PUPIL_SAMPLING, PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, verbose=verbose)      
+    # instantiate camera, entrance pupil and output
+    cam = camera(self.CAMERA_FWNO)
+    pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, self.PUPIL_RADIUS_UNIT, verbose=verbose)  
+    this_composite_image = self.datacube.composite(self.datacube, wave, pupil)
       
     # get WFE if requested
-    if ADD_WFE:
+    if self.ADD_WFE:
       wfe = zwfe(wfe_file, logger, verbose=verbose)
       wfe.parse()
       wfe_h = wfe.getHeader()	
-      wfe_d = wfe.getData(in_radians=True)		# returns data same dimensions as pupil array, in radians
+      wfe_d = wfe.getData(in_radians=True, pad_pupil=pupil)		# returns data same dimensions as pupil array, in radians
 	  
-      if wfe_h['SAMPLING'][0] != PUPIL_SAMPLING:
-	self.logger.critical(" Zemax WFE sampling is not the same as the pupil sampling! (" + str(wfe_h['SAMPLING'][0]) + " != " + str(PUPIL_SAMPLING) + ")")
+      if wfe_h['SAMPLING'][0] != self.PUPIL_SAMPLING:
+	self.logger.critical(" Zemax WFE sampling is not the same as the pupil sampling! (" + str(wfe_h['SAMPLING'][0]) + " != " + str(self.PUPIL_SAMPLING) + ")")
 	exit(0)
-      pad_by = (PUPIL_SAMPLING*(PUPIL_GAMMA-1))/2
-      wfe_d = np.pad(wfe_d, pad_by, mode='constant')
-      pl.addImagePlot("wfe (radians)", np.abs(wfe_d), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)  
+      pl.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl=self.PUPIL_RADIUS_UNIT, yl=self.PUPIL_RADIUS_UNIT)  
 
-    pl.addImagePlot("pupil", pupil.getAmplitude(), extent=pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
-
-    # plot image of whole pupil unsliced (this image is just for plotting purposes)
-    im = pupil.toConjugateImage(wave)
-    d, hfov = im.getAmplitudeScaledByAiryDiameters(3, scale="linear", normalise=True)
+    # plot image of whole pupil unsliced (when slicing, this image is just for plotting purposes)
+    im = pupil.toConjugateImage(wave, verbose=True)
+    d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
     pl.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
 
     # slicing
-    if DO_SLICING:
+    if self.DO_SLICING:
       # take slices from the image space
       slices = []
-      for s in range(NSLICES):				
-	im = pupil.toConjugateImage(wave)		# move from pupil to image space
-	offset = (s-((NSLICES-1)/2))*SLICE_WIDTH
-	im.takeSlice(SLICE_WIDTH, offset=offset)	# create a new pupil conjugate image instance for each slice
-	pl.addScatterPlot(None, [(-(SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
-				(-(SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
-	pl.addScatterPlot(None, [((SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
-				((SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
-	pl.addTextToPlot(hfov-(hfov/4), (offset*im.resolution_element)-((SLICE_WIDTH*im.resolution_element)/2), str(s), color='w', fontsize=10)
+      for s in range(self.NSLICES):				
+	im = pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
+	offset = (s-((self.NSLICES-1)/2))*self.SLICE_WIDTH
+	im.takeSlice(self.SLICE_WIDTH, offset=offset, verbose=True)	# create a new pupil conjugate image instance for each slice
+	pl.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
+				(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
+	pl.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
+				((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
+	pl.addTextToPlot(hfov-(hfov/4), (offset*im.resolution_element)-((self.SLICE_WIDTH*im.resolution_element)/2), str(s), color='w', fontsize=10)
 	slices.append(im)
-	
+	    
       for idx, s in enumerate(slices):	
 	 # fft back to pupil plane 
-	new_pupil = s.toConjugatePupil()				
-        pl.addImagePlot("-> take slice " + str(idx) + " -> ifft to pupil space", new_pupil.getAmplitude(), extent=new_pupil.getExtent(), xl=PUPIL_RADIUS_UNIT, yl=PUPIL_RADIUS_UNIT)
+	new_pupil = s.toConjugatePupil()				# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
+        pl.addImagePlot("-> take slice " + str(idx) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
+			extent=new_pupil.getExtent(), xl=self.PUPIL_RADIUS_UNIT, yl=self.PUPIL_RADIUS_UNIT)
     	
         # add phase WFE 
-        if ADD_WFE:
+        if self.ADD_WFE:
 	  new_pupil.addToPhase(wfe_d)
 	  plt_title_prefix = "added phase error "
+	  self.logger.debug(" Added phase error for slice " + str(idx) + ".")
 	else:
 	  plt_title_prefix = ""
     
         # fft back to image plane
-        im = new_pupil.toConjugateImage(wave)
-        d, hfov = im.getAmplitudeScaledByAiryDiameters(3, shift=True)
+        im = new_pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
+        
+        d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
         pl.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
-    else:
-      # move from pupil to image space
-      im = pupil.toConjugateImage(wave)
+        this_composite_image.add(im)
+    else:    
       # add phase WFE 
-      if ADD_WFE:
-        pupil.addToPhase(wfe_d)
+      if self.ADD_WFE:
+        pupil.addToPhase(wfe_d) 
         plt_title_prefix = "added phase error "
+        self.logger.debug(" Added phase error.")
       else:
 	  plt_title_prefix = ""
 	  
-      d, hfov = im.getAmplitudeScaledByAiryDiameters(20, scale="log", normalise=True)
+      # move from pupil to image space	
+      im = pupil.toConjugateImage(wave)  				# NON-SLICING SPACE CHANGE. move from pupil to image space. centered DC.
+	  
+      d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
       pl.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
+      
+      this_composite_image.add(im)
     
     if plot:
-      pl.draw(3,4)
-    
-    if fits:
-      if os.path.exists("out.fits"):
-        os.remove("out.fits")
-      h = pyfits.Header()
-      h.append(('CRVAL1', -im.getDetectorHFOV()))
-      h.append(('CDELT1', im.pscale))
-      h.append(('CRPIX1', 0.5))
-      h.append(('CUNIT1', "arcsec"))
-      h.append(('CTYPE1', "PARAM"))
-      h.append(('CRVAL2', -im.getDetectorHFOV()))
-      h.append(('CDELT2', im.pscale))
-      h.append(('CRPIX2', 0.5))
-      h.append(('CUNIT2', "arcsec"))
-      h.append(('CTYPE2', "PARAM"))
-      pyfits.writeto("out.fits", im.getAmplitude(power=True, shift=False, normalise=True), h)
-      
-      if ds9:
-	d = pyds9.DS9()
-	d.set("file out.fits")
-	d.set('cmap heat')
-	d.set('scale log')
-	d.set('zoom 4')
+      pl.draw(5,5)
+
+    return this_composite_image
 
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
@@ -178,8 +158,9 @@ if __name__== "__main__":
   parser.add_argument("-wi", help="wavelength interval", default=25e-9, type=float)
   parser.add_argument("-e", help="zemax wfe file directory", default="etc/wfe/diffg", type=str)	# should be in format 
   parser.add_argument("-p", help="plot?", action="store_true")
-  parser.add_argument("-f", help="create fits", action="store_true")
-  parser.add_argument("-fv", help="view fits", action="store_true")
+  parser.add_argument("-f", help="create fits?", action="store_true")
+  parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
+  parser.add_argument("-fv", help="view fits?", action="store_true")
   parser.add_argument("-v", help="verbose", action="store_true")
   args = parser.parse_args()
 
@@ -192,13 +173,37 @@ if __name__== "__main__":
   ch.setFormatter(formatter)
   logger.addHandler(ch)
   
-  pl = plotter.plotter()	# setup plotting
+  # setup plotting
+  pl = plotter.plotter()	
   
+  # get configuration parameters
+  c = ConfigParser.ConfigParser()
+  c.read("etc/default.ini")
+  cfg = {}
+  cfg_sim = {}
+  cfg['RESAMPLE']		= str(c.get("output", "resample"))
+  cfg['SAMPLING_FACTOR']	= int(c.get("output", "sampling_factor"))     
+  cfg['FOV']			= float(c.get("output", "fov"))    
+  
+  cfg_sim['CAMERA_FWNO']	= float(c.get("camera", "wfno"))
+  
+  cfg_sim['PUPIL_SAMPLING']	= float(c.get("pupil", "pupil_sampling"))
+  cfg_sim['PUPIL_GAMMA'] 	= float(c.get("pupil", "pupil_gamma"))
+  cfg_sim['PUPIL_RADIUS'] 	= float(c.get("pupil", "pupil_radius_physical"))
+  cfg_sim['PUPIL_RADIUS_UNIT']	= str(c.get("pupil", "pupil_radius_physical_unit"))
+  
+  cfg_sim['ADD_WFE']		= bool(int(c.get("wfe", "do")))
+
+  cfg_sim['DO_SLICING']		= bool(int(c.get("slicing", "do")))
+  cfg_sim['NSLICES']		= int(c.get("slicing", "number"))
+  cfg_sim['SLICE_WIDTH']	= float(c.get("slicing", "width"))				# in resolution elements
+
   logger.debug(" Starting timer.")
   st = time.time()
-
-  s = sim(logger, plotter, "etc/default.ini")
-  for w in np.arange(args.ws, args.we, args.wi):
+  
+  waves = np.arange(args.ws, args.we, args.wi)
+  s = sim(logger, plotter, len(waves), **cfg_sim)
+  for w in waves:
     logger.info(" Beginning simulation for a wavelength of " + str(w*1e9) + "nm...")   
     
     # find appropriate zemax wfe file
@@ -210,12 +215,23 @@ if __name__== "__main__":
         h = wfe.getHeader()
         if np.isclose(h['WAVE']*h['WAVE_EXP'], w):
 	  wfe_file = f
+	  logging.debug(" Using WFE file " + wfe_file)
 	  break
     if wfe_file is None:
       logger.critical(" Unable to find Zemax WFE file!")
       exit(0)
  
-    s.run(w, wfe_file, plot=args.p, fits=args.f, ds9=args.fv, verbose=args.v)
+    res = s.run(w, wfe_file, plot=args.p, verbose=args.v)
+    s.datacube.addComposite(res)
+    
+  if args.f:
+    s.datacube.write(args.fn, cfg['RESAMPLE'], cfg['SAMPLING_FACTOR'], cfg['FOV'])
+    if args.fv:
+      d = pyds9.DS9()
+      d.set("file composite.fits")
+      d.set('cmap heat')
+      d.set('scale log')
+      d.set('zoom 4')
     
   fi = time.time()
   duration = fi-st
