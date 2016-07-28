@@ -155,6 +155,8 @@ class circular(pupil):
 	self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 4) + "\"" + " (" + sf(self.pupil.camera.s_detector_FOV, 6) + "μm)")
 	self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 4) + "\"" + " (" + sf(self.pupil.camera.s_airy_disk_d, 4) + "μm)")
      
+      self.slice_number = None
+     
     def getDetectorHFOV(self):
       return self.detector_FOV/2.
 
@@ -210,7 +212,7 @@ class circular(pupil):
 
       return self.getAmplitude(power, shift, normalise, scale)[(self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2), (self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2)], detector_HFOV_scaled
     
-    def takeSlice(self, width_el, offset=0, verbose=False):
+    def takeSlice(self, width_el, offset=0, slice_number=1, verbose=False):
       '''
 	Takes a slice of width [width_el] resolution element, offset by [offset] resolution elements from the centre.
 	
@@ -229,6 +231,8 @@ class circular(pupil):
       self.data[0:(self.pupil.gsize/2)-(self.half_slice_width/2)+self.offset_res] = 0
       self.data[(self.pupil.gsize/2)+(self.half_slice_width/2)+self.offset_res:] = 0   
       
+      self.slice_number = slice_number
+
     def toConjugatePupil(self, ishift=True, verbose=False):   
       new_pupil = circular(self.pupil.logger, self.pupil.camera, self.pupil.sampling, self.pupil.gamma, self.pupil.rad, self.pupil.physical_gsize_unit, verbose)
       new_pupil.data = deepcopy(self.data)

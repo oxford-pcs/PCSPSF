@@ -101,25 +101,25 @@ class sim():
       for s in range(self.NSLICES):				
 	im = pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
 	offset = (s-((self.NSLICES-1)/2))*self.SLICE_WIDTH
-	im.takeSlice(self.SLICE_WIDTH, offset=offset, verbose=True)	# create a new pupil conjugate image instance for each slice
+	im.takeSlice(self.SLICE_WIDTH, offset=offset, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
 	pl.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 				(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
 	pl.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 				((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
-	pl.addTextToPlot(hfov-(hfov/4), (offset*im.resolution_element)-((self.SLICE_WIDTH*im.resolution_element)/2), str(s), color='w', fontsize=10)
+	pl.addTextToPlot(hfov-(hfov/4), ((self.SLICE_WIDTH*im.resolution_element)/2)-((offset+0.5)*im.resolution_element), str(im.slice_number), color='w', fontsize=10)
 	slices.append(im)
 	    
-      for idx, s in enumerate(slices):	
+      for s in slices:	
 	 # fft back to pupil plane 
 	new_pupil = s.toConjugatePupil()				# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
-        pl.addImagePlot("-> take slice " + str(idx) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
+        pl.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
 			extent=new_pupil.getExtent(), xl=self.PUPIL_RADIUS_UNIT, yl=self.PUPIL_RADIUS_UNIT)
     	
         # add phase WFE 
         if self.ADD_WFE:
 	  new_pupil.addToPhase(wfe_d)
 	  plt_title_prefix = "added phase error "
-	  self.logger.debug(" Added phase error for slice " + str(idx) + ".")
+	  self.logger.debug(" Added phase error for slice " + str(s.slice_number) + ".")
 	else:
 	  plt_title_prefix = ""
     
@@ -198,13 +198,13 @@ if __name__== "__main__":
   cfg_sim['NSLICES']		= int(c.get("slicing", "number"))
   cfg_sim['SLICE_WIDTH']	= float(c.get("slicing", "width"))				# in resolution elements
 
-  logger.debug(" Starting timer.")
   st = time.time()
+  logger.debug(" Beginning simulation.")
   
   waves = np.arange(args.ws, args.we, args.wi)
   s = sim(logger, plotter, len(waves), **cfg_sim)
   for w in waves:
-    logger.info(" Beginning simulation for a wavelength of " + str(w*1e9) + "nm...")   
+    logger.info(" Processing for a wavelength of " + str(w*1e9) + "nm...")   
     
     # find appropriate zemax wfe file
     wfe_file = None
@@ -235,5 +235,4 @@ if __name__== "__main__":
     
   fi = time.time()
   duration = fi-st
-  logger.debug(" Ending timer.")
   logger.debug(" Full simulation completed in " + str(sf(duration, 4)) + "s.")
