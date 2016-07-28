@@ -98,10 +98,10 @@ class sim():
     if self.DO_SLICING:
       # take slices from the image space
       slices = []
-      for s in range(self.NSLICES):				
+      for s in range(self.NSLICES):	
 	im = pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
 	offset = (s-((self.NSLICES-1)/2))*self.SLICE_WIDTH
-	im.takeSlice(self.SLICE_WIDTH, offset=offset, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
+	im.sliceUp(self.SLICE_WIDTH, offset=offset, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
 	pl.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 				(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
 	pl.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
@@ -179,8 +179,8 @@ if __name__== "__main__":
   # get configuration parameters
   c = ConfigParser.ConfigParser()
   c.read("etc/default.ini")
-  cfg = {}
-  cfg_sim = {}
+  cfg = {}			# config parameters needed by __main__ *only*
+  cfg_sim = {}			# config parameters needed by simulation instance
   cfg['RESAMPLE']		= str(c.get("output", "resample"))
   cfg['SAMPLING_FACTOR']	= int(c.get("output", "sampling_factor"))     
   cfg['FOV']			= float(c.get("output", "fov"))    
@@ -206,21 +206,24 @@ if __name__== "__main__":
   for w in waves:
     logger.info(" Processing for a wavelength of " + str(w*1e9) + "nm...")   
     
-    # find appropriate zemax wfe file
-    wfe_file = None
-    for f in os.listdir(args.e):
-      f = args.e.rstrip('/') + '/' + f
-      wfe = zwfe(f, logger, verbose=False)
-      if wfe.parseFileHeader():
-        h = wfe.getHeader()
-        if np.isclose(h['WAVE']*h['WAVE_EXP'], w):
-	  wfe_file = f
-	  logging.debug(" Using WFE file " + wfe_file)
-	  break
-    if wfe_file is None:
-      logger.critical(" Unable to find Zemax WFE file!")
-      exit(0)
- 
+    if cfg_sim['ADD_WFE']:
+      # find appropriate zemax wfe file
+      wfe_file = None
+      for f in os.listdir(args.e):
+	f = args.e.rstrip('/') + '/' + f
+	wfe = zwfe(f, logger, verbose=False)
+	if wfe.parseFileHeader():
+	  h = wfe.getHeader()
+	  if np.isclose(h['WAVE']*h['WAVE_EXP'], w):
+	    wfe_file = f
+	    logging.debug(" Using WFE file " + wfe_file)
+	    break
+      if wfe_file is None:
+	logger.critical(" Unable to find Zemax WFE file!")
+	exit(0)
+    else:
+      wfe_file = None
+
     res = s.run(w, wfe_file, plot=args.p, verbose=args.v)
     s.datacube.addComposite(res)
     

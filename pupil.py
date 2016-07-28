@@ -18,6 +18,8 @@ class pupil(object):
     self.physical_gsize_unit	= None						# physical unit of grid
     self.data			= None
     
+    self.image_slicing_region	= None
+    
   def _setup(self):
     mag = np.ones((self.gsize,self.gsize))
     phase = np.zeros(mag.shape)
@@ -35,9 +37,6 @@ class pupil(object):
     im = mag * np.sin(phase)
 
     self.data = re + 1j * im
-
-  def getData(self, npix=None):
-    return self.data
 
   def getAmplitude(self, power=False, shift=False, scale="linear", normalise=False):
     d = deepcopy(np.abs(self.data))
@@ -83,10 +82,16 @@ class pupil(object):
     '''
     return (-self.physical_gsize/2, self.physical_gsize/2, -self.physical_gsize/2, self.physical_gsize/2)
   
-  def toConjugateImage():
+  def toConjugateImage(self, wave, shift=True, verbose=False):
     '''
       This function constructs an image of the pupil.
     '''
+    i_data = np.fft.fft2(self.data)
+    if shift:
+      i_data = np.fft.fftshift(i_data)   
+    return self.conjugateImage(self, i_data, wave, verbose)
+  
+  class conjugateImage():
     pass
   
 class circular(pupil): 
@@ -97,7 +102,7 @@ class circular(pupil):
     self.physical_entrance_diameter		= self.rad*2					# physical diameter of entrance pupil in units of [physical_gsize_unit]
     self.physical_gsize 			= self.physical_entrance_diameter*self.gamma	
     self.pupil_plate_scale			= self.physical_entrance_diameter/sampling
-    
+
     # translate unit to numerical quantity so output scale is physically meaningful
     if self.physical_gsize_unit == "m":
       self.physical_gsize_mfactor = 1
@@ -115,6 +120,10 @@ class circular(pupil):
     # initialise data
     self._setup() 
    
+    # this is just to maintain conformity with derived slicing class
+    self.region					= (0, self.data.shape[0])
+    self.number					= -1
+   
   def _setup(self):
     y, x = np.ogrid[-self.gsize/2:self.gsize/2, -self.gsize/2:self.gsize/2]
     mask = x*x + y*y <= (self.sampling/2)*(self.sampling/2)
@@ -129,17 +138,12 @@ class circular(pupil):
     self.data = re + 1j * im
     self.data = np.fft.fftshift(self.data)   
     
-  def toConjugateImage(self, wave, shift=True, verbose=False):   
-    i_data = np.fft.fft2(self.data)
-    if shift:
-      i_data = np.fft.fftshift(i_data)   
-    return self.conjugateImage(self, i_data, wave, verbose)
-
-  class conjugateImage():
+  class conjugateImage(object):
     def __init__(self, pupil, i_data, wave, verbose):
       self.pupil = pupil
       self.wave	= wave
       self.data = i_data
+      self.is_sliced = False
       
       self.resolution_element	= np.degrees(self.wave/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
       self.pscale		= self.resolution_element/self.pupil.gamma								# "/px
@@ -156,7 +160,7 @@ class circular(pupil):
 	self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 4) + "\"" + " (" + sf(self.pupil.camera.s_airy_disk_d, 4) + "μm)")
      
       self.slice_number = None
-     
+       
     def getDetectorHFOV(self):
       return self.detector_FOV/2.
 
@@ -212,31 +216,55 @@ class circular(pupil):
 
       return self.getAmplitude(power, shift, normalise, scale)[(self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2), (self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2)], detector_HFOV_scaled
     
-    def takeSlice(self, width_el, offset=0, slice_number=1, verbose=False):
+    def sliceUp(self, width_el, offset=0, slice_number=1, verbose=False):
       '''
-	Takes a slice of width [width_el] resolution element, offset by [offset] resolution elements from the centre.
+	Takes a slice of width [width_el] resolution element, offset by [offset] resolution elements from the centre
+	and pads the rest of the array with zeros.
 	
-	Pads the rest of the array with zeros.
+	This will permanently change the data and set the is_sliced flag.
       '''
-      self.half_slice_width = int(self.pupil.gamma*width_el)		# in pixels
-      self.offset_res = int(self.pupil.gamma*offset)			# in pixels
+      half_slice_width 	= int(self.pupil.gamma*width_el)		# in pixels
+      offset_res 	= int(self.pupil.gamma*offset)			# in pixels
+      
+      self.slice_number = slice_number
+      self.slice_region	= ((self.pupil.gsize/2)-(half_slice_width/2)+offset_res, (self.pupil.gsize/2)+(half_slice_width/2)+offset_res)
       try:
-	assert self.half_slice_width % 2 == 0
-	assert self.offset_res % 2 == 0
+	assert half_slice_width % 2 == 0
+	assert offset_res % 2 == 0
       except AssertionError:
 	self.pupil.logger.critical(" Either the half slice width or offset does not correspond to an even number of pixels!")
 	exit(0)
       if verbose:
-	self.pupil.logger.debug(" Taking slice of width " + str(width_el) + "γ = " + str(self.half_slice_width) + " pixels with an offset of " + str(self.offset_res) + " pixels.")  
-      self.data[0:(self.pupil.gsize/2)-(self.half_slice_width/2)+self.offset_res] = 0
-      self.data[(self.pupil.gsize/2)+(self.half_slice_width/2)+self.offset_res:] = 0   
-      
-      self.slice_number = slice_number
+	self.pupil.logger.debug(" Taking slice of width " + str(width_el) + "γ = " + str(half_slice_width) + " pixels with an offset of " + str(offset_res) + " pixels.")  
+      data = deepcopy(self.data)
+      data[0:self.slice_region[0]] = 0
+      data[self.slice_region[1]:] = 0   
+      self.data = data
+      self.is_sliced = True
 
-    def toConjugatePupil(self, ishift=True, verbose=False):   
-      new_pupil = circular(self.pupil.logger, self.pupil.camera, self.pupil.sampling, self.pupil.gamma, self.pupil.rad, self.pupil.physical_gsize_unit, verbose)
+    def toConjugatePupil(self, ishift=True, verbose=False):  
+      '''
+        Returns a new instance of either circular or circular_pupil, depending on whether
+        the is_sliced flag has been set.
+      '''
+      if self.is_sliced:
+        new_pupil = circular_slice(self.pupil.logger, self.pupil.camera, self.pupil.sampling, self.pupil.gamma, 
+				    self.pupil.rad, self.pupil.physical_gsize_unit, self.slice_number, self.slice_region, verbose)
+      else:
+	new_pupil = circular(self.pupil.logger, self.pupil.camera, self.pupil.sampling, self.pupil.gamma, self.pupil.rad, self.pupil.physical_gsize_unit, verbose)
       new_pupil.data = deepcopy(self.data)
       if ishift:
 	new_pupil.data = np.fft.ifftshift(new_pupil.data)   
       new_pupil.data = np.fft.ifft2(new_pupil.data)
       return new_pupil
+    
+class circular_slice(circular):
+  '''
+    This class has two extra fields on init compared with its parent, with details
+    pertaining to the slice taken.
+  '''
+  def __init__(self, logger, camera, sampling, gamma, rad, physical_gsize_unit, number, region, verbose):
+    super(circular_slice, self).__init__(logger, camera, sampling, gamma, rad, physical_gsize_unit, verbose)
+    self.number		= number
+    self.region 	= region
+    

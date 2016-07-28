@@ -12,6 +12,7 @@ class cube():
     self.logger = logger
     self.params = []
     self.cube_idx = 0
+  
   def addComposite(self, composite):
     self.data[self.cube_idx] 	= composite.data
     p = {}
@@ -21,6 +22,7 @@ class cube():
     p['DETECTOR_FOV']	 	= composite.detector_FOV
     self.params.append(p)
     self.cube_idx += 1
+  
   def write(self, fname, resample, sampling_factor, fov):
     data = []
     header = pyfits.Header()
@@ -75,8 +77,9 @@ class cube():
       self.pscale		= self.resolution_element/pupil.gamma								# "/px
       self.detector_FOV 	= self.pscale*pupil.gsize									# deg
       self.data 		= np.zeros(self.cube.data.shape[1:3])
+    
     def add(self, im):
       if self.data.shape != im.getAmplitude().shape:
 	self.cube.logger.critical(" Data cannot be added to composite - shapes must be identical.")
         exit(0)
-      self.data += im.getAmplitude()
+      self.data[im.pupil.region[0]:im.pupil.region[1]] += im.getAmplitude()[im.pupil.region[0]:im.pupil.region[1]]		# if this is a slice, only adds data within slice
