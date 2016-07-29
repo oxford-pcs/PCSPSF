@@ -26,21 +26,22 @@ def isPowerOfTwo(num):
   return num == 1
 
 class sim():
-  def __init__(self, logger, plotter, nwaves, CAMERA_FWNO, PUPIL_SAMPLING, 
-	       PUPIL_GAMMA, PUPIL_RADIUS, PUPIL_RADIUS_UNIT, ADD_WFE, DO_SLICING, 
-	       NSLICES, SLICE_WIDTH):
+  def __init__(self, logger, plotter, resampling_im, nwaves, CAMERA_FWNO, PUPIL_SAMPLING, 
+	       PUPIL_GAMMA, PUPIL_RADIUS, ADD_WFE, DO_SLICING, 
+	       NSLICES, SLICE_WIDTH, RESAMPLE_TO):
     self.logger 		= logger
     self.plotter 		= plotter
+    self.resampling_im		= resampling_im
     self.nwaves			= nwaves
     self.CAMERA_FWNO		= CAMERA_FWNO
     self.PUPIL_SAMPLING 	= PUPIL_SAMPLING
     self.PUPIL_GAMMA		= PUPIL_GAMMA
     self.PUPIL_RADIUS		= PUPIL_RADIUS
-    self.PUPIL_RADIUS_UNIT	= PUPIL_RADIUS_UNIT
     self.ADD_WFE		= ADD_WFE
     self.DO_SLICING		= DO_SLICING
     self.NSLICES		= NSLICES
     self.SLICE_WIDTH		= SLICE_WIDTH
+    self.RESAMPLE_TO		= RESAMPLE_TO
     
     self.datacube		= cube(self.logger, shape=[self.nwaves, self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA])
    
@@ -48,6 +49,7 @@ class sim():
     """
       Run the simulation.
     """
+    # do a few sanity checks first
     try:
       self.PUPIL_SAMPLING 	= int(self.PUPIL_SAMPLING)
       self.PUPIL_GAMMA 		= int(self.PUPIL_GAMMA)
@@ -74,7 +76,7 @@ class sim():
       
     # instantiate camera, entrance pupil and output
     cam = camera(self.CAMERA_FWNO)
-    pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, self.PUPIL_RADIUS_UNIT, verbose=verbose)  
+    pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)  
     this_composite_image = self.datacube.composite(self.datacube, wave, pupil)
       
     # get WFE if requested
@@ -87,13 +89,15 @@ class sim():
       if wfe_h['SAMPLING'][0] != self.PUPIL_SAMPLING:
 	self.logger.critical(" Zemax WFE sampling is not the same as the pupil sampling! (" + str(wfe_h['SAMPLING'][0]) + " != " + str(self.PUPIL_SAMPLING) + ")")
 	exit(0)
-      pl.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl=self.PUPIL_RADIUS_UNIT, yl=self.PUPIL_RADIUS_UNIT)  
+      pl.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
-    # plot image of whole pupil unsliced (when slicing, this image is just for plotting purposes)
+    # rescale image to same plate scale as resampled_im
     im = pupil.toConjugateImage(wave, verbose=True)
     d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
     pl.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
-
+    im.resample(self.resampling_im.pscale, self.resampling_im.getDetectorHFOV(), verbose=True)
+    pupil = im.toConjugatePupil(verbose=True)
+    
     # slicing
     if self.DO_SLICING:
       # take slices from the image space
@@ -101,7 +105,7 @@ class sim():
       for s in range(self.NSLICES):	
 	im = pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
 	offset = (s-((self.NSLICES-1)/2))*self.SLICE_WIDTH
-	im.sliceUp(self.SLICE_WIDTH, offset=offset, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
+	im.sliceUp(self.SLICE_WIDTH, offset=offset, gamma=self.resampling_im.pupil.gamma, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
 	pl.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 				(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
 	pl.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
@@ -113,7 +117,7 @@ class sim():
 	 # fft back to pupil plane 
 	new_pupil = s.toConjugatePupil()				# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
         pl.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
-			extent=new_pupil.getExtent(), xl=self.PUPIL_RADIUS_UNIT, yl=self.PUPIL_RADIUS_UNIT)
+			extent=new_pupil.getExtent(), xl='mm', yl='mm')
     	
         # add phase WFE 
         if self.ADD_WFE:
@@ -140,11 +144,11 @@ class sim():
 	  
       # move from pupil to image space	
       im = pupil.toConjugateImage(wave)  				# NON-SLICING SPACE CHANGE. move from pupil to image space. centered DC.
-	  
+      
       d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
       pl.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
       
-      this_composite_image.add(im)
+      this_composite_image.add(im)					# take amplitude and add per slice
     
     if plot:
       pl.draw(5,5)
@@ -181,30 +185,36 @@ if __name__== "__main__":
   c.read("etc/default.ini")
   cfg = {}			# config parameters needed by __main__ *only*
   cfg_sim = {}			# config parameters needed by simulation instance
-  cfg['RESAMPLE']		= str(c.get("output", "resample"))
-  cfg['SAMPLING_FACTOR']	= int(c.get("output", "sampling_factor"))     
-  cfg['FOV']			= float(c.get("output", "fov"))    
+  cfg['RESAMPLING_FACTOR']	= int(c.get("output", "resampling_factor"))     
+  cfg['HFOV']			= float(c.get("output", "hfov"))    
   
   cfg_sim['CAMERA_FWNO']	= float(c.get("camera", "wfno"))
   
   cfg_sim['PUPIL_SAMPLING']	= float(c.get("pupil", "pupil_sampling"))
   cfg_sim['PUPIL_GAMMA'] 	= float(c.get("pupil", "pupil_gamma"))
   cfg_sim['PUPIL_RADIUS'] 	= float(c.get("pupil", "pupil_radius_physical"))
-  cfg_sim['PUPIL_RADIUS_UNIT']	= str(c.get("pupil", "pupil_radius_physical_unit"))
   
   cfg_sim['ADD_WFE']		= bool(int(c.get("wfe", "do")))
 
   cfg_sim['DO_SLICING']		= bool(int(c.get("slicing", "do")))
   cfg_sim['NSLICES']		= int(c.get("slicing", "number"))
   cfg_sim['SLICE_WIDTH']	= float(c.get("slicing", "width"))				# in resolution elements
+  cfg_sim['RESAMPLE_TO']	= float(c.get("slicing", "resample_to"))
 
   st = time.time()
   logger.debug(" Beginning simulation.")
   
   waves = np.arange(args.ws, args.we, args.wi)
-  s = sim(logger, plotter, len(waves), **cfg_sim)
+  
+  # first need to find the resampling parameters, we do this by create a conjugateImage instance
+  logger.debug(" Ascertaining parameters to resample to " + sf(cfg_sim['RESAMPLE_TO']*10**9,3) + "nm")
+  cam = camera(cfg_sim['CAMERA_FWNO'])
+  resampling_pupil = circular(logger, cam, cfg_sim['PUPIL_SAMPLING'], cfg_sim['PUPIL_GAMMA'], cfg_sim['PUPIL_RADIUS'], verbose=True) 
+  resampling_im = resampling_pupil.toConjugateImage(cfg_sim['RESAMPLE_TO'], verbose=True)
+  
+  s = sim(logger, plotter, resampling_im, len(waves), **cfg_sim)  
   for w in waves:
-    logger.info(" Processing for a wavelength of " + str(w*1e9) + "nm...")   
+    logger.info(" !!! Processing for a wavelength of " + str(w*1e9) + "nm...")   
     
     if cfg_sim['ADD_WFE']:
       # find appropriate zemax wfe file
@@ -228,7 +238,7 @@ if __name__== "__main__":
     s.datacube.addComposite(res)
     
   if args.f:
-    s.datacube.write(args.fn, cfg['RESAMPLE'], cfg['SAMPLING_FACTOR'], cfg['FOV'])
+    s.datacube.write(args.fn, resampling_im, cfg['RESAMPLING_FACTOR'], cfg['HFOV'], verbose=True)
     if args.fv:
       d = pyds9.DS9()
       d.set("file composite.fits")
