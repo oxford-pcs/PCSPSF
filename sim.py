@@ -49,7 +49,9 @@ class sim():
     """
       Run the simulation.
     """
+    #
     # do a few sanity checks first
+    #
     try:
       self.PUPIL_SAMPLING 	= int(self.PUPIL_SAMPLING)
       self.PUPIL_GAMMA 		= int(self.PUPIL_GAMMA)
@@ -74,12 +76,16 @@ class sim():
       self.logger.critical(" Pupil sampling should be a power of two!")
       exit(0)
       
+    #
     # instantiate camera, entrance pupil and output
+    #
     cam = camera(self.CAMERA_FWNO)
     pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)  
     this_composite_image = self.datacube.composite(self.datacube, wave, pupil)
       
+    #
     # get WFE if requested
+    #
     if self.ADD_WFE:
       wfe = zwfe(wfe_file, logger, verbose=verbose)
       wfe.parse()
@@ -91,14 +97,18 @@ class sim():
 	exit(0)
       pl.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
-    # rescale image to same plate scale as resampled_im
+    #
+    # rescale current image to same plate scale as resampled_im
+    #
     im = pupil.toConjugateImage(wave, verbose=True)
     d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
     pl.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
     im.resample(self.resampling_im.pscale, self.resampling_im.getDetectorHFOV(), verbose=True)
     pupil = im.toConjugatePupil(verbose=True)
     
+    #
     # slicing
+    #
     if self.DO_SLICING:
       # take slices from the image space
       slices = []
@@ -215,7 +225,6 @@ if __name__== "__main__":
   s = sim(logger, plotter, resampling_im, len(waves), **cfg_sim)  
   for w in waves:
     logger.info(" !!! Processing for a wavelength of " + str(w*1e9) + "nm...")   
-    
     if cfg_sim['ADD_WFE']:
       # find appropriate zemax wfe file
       wfe_file = None
