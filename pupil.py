@@ -111,9 +111,9 @@ class circular(pupil):
     self.physical_gsize_mfactor = 1e-3
 
     if verbose:
-      self.logger.debug(" Entrance pupil diameter is " + str(self.physical_entrance_diameter) + 'mm')
+      self.logger.debug(" Entrance pupil diameter is " + str(sf(self.physical_entrance_diameter, 3)) + 'mm')
       self.logger.debug(" With pupil sampling of " + str(self.sampling) + "x" + str(self.sampling) + ", this corresponds to a pupil plate scale of " + 
-			sf(self.pupil_plate_scale, 2) + "mm/px.")
+			sf(self.pupil_plate_scale, 2) + "mm/px")
    
     # this is just to maintain conformity with derived slicing class
     self.region					= (0, self.data.shape[0])
@@ -140,15 +140,15 @@ class circular(pupil):
       self.data = i_data
       self.is_sliced = False
       
-      self.resolution_element	= np.degrees(self.wave/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
-      self.pscale		= self.resolution_element/self.pupil.gamma								# "/px
-      self.detector_FOV 	= self.pscale*self.pupil.gsize										# deg
-      self.airy_disk_d		= 2.44*self.resolution_element										# "
+      self.resolution_element	= np.degrees(float(self.wave)/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
+      self.pscale		= self.resolution_element/self.pupil.gamma									# "/px
+      self.detector_FOV 	= self.pscale*self.pupil.gsize											# deg
+      self.airy_disk_d		= 2.44*self.resolution_element											# "
       
       self.pupil.camera.populateSpatialParameters(self)
       
       if verbose:
-	self.pupil.logger.debug(" At a wavelength of " + str(self.wave*10**9) + "nm, a system with a focal ratio of " + str(self.pupil.camera.wfno) + " with a circular aperture would have the following properties:")
+	self.pupil.logger.debug(" At a wavelength of " + sf(self.wave*10**9, 4) + "nm, a system with a focal ratio of " + sf(self.pupil.camera.wfno, 3) + " with a circular aperture would have the following properties:")
 	self.pupil.logger.debug(" -> " + sf(self.resolution_element, 4) + "\"" + " (" + sf(self.pupil.camera.s_resolution_element, 4) + "μm)" + " per resolution element λ/D")
 	self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel, with γ=" + str(self.pupil.gamma) + " pixels per resolution element")
 	self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 4) + "\"" + " (" + sf(self.pupil.camera.s_detector_FOV, 6) + "μm)")

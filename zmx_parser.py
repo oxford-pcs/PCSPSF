@@ -1,4 +1,5 @@
 import codecs
+from decimal import *
 
 import numpy as np
 import pylab as plt
@@ -98,7 +99,43 @@ class zfftpsf():
   
   def getData(self):
     return np.array(self.data)
-
+    
+class zsystemdata():
+  def __init__(self, fname, logger, verbose=True):
+    self.fname = fname
+    self.logger = logger
+    self.keywords = {"WFNO": None, "EPD": None}
+    self.verbose = verbose
+    
+  def _decode(self, encoding):
+    fp = codecs.open(self.fname, "r", encoding)
+    content = fp.readlines()
+    fp.close()
+    return content
+  
+  def _parseFileForKeywords(self):
+    content = self._decode("UTF-16-LE")
+    for idx, line in enumerate(content):
+      if len(line.split(':')) >= 2:
+	if "Working F/#" in line.split(':')[0]:
+	  self.keywords['WFNO'] = float(line.split(':')[1].strip())
+	elif "Entrance Pupil Diameter" in line.split(':')[0]:
+	  self.keywords['EPD'] = float(line.split(':')[1].strip())
+	if None not in self.keywords.viewvalues():		# we've fully populated the header dict
+	  return True
+    return False  
+  
+  def parse(self, debug=False):
+    if self._parseFileForKeywords():
+      if debug:
+        self.logger.debug(self.keywords)
+    else:
+      self.logger.critical(" Failed to read ZEMAX keywords!")  
+      exit(0)
+      
+  def getKeywords(self):
+    return self.keywords
+	
 class zwfe():
   def __init__(self, fname, logger, verbose=True):
     self.fname = fname
@@ -115,31 +152,34 @@ class zwfe():
   
   def parseFileHeader(self):
     content = self._decode("UTF-16-LE")
-    for idx, line in enumerate(content):
-      if idx == 8:
-	self.header['WAVE'] = float(line.split()[0].strip())
-	if unicode(line.split()[1].rstrip(',').strip()) == u'm':
-	  self.header['WAVE_EXP'] = 1
-	if unicode(line.split()[1].rstrip(',').strip()) == u'mm':
-	  self.header['WAVE_EXP'] = 1e-3
-	elif unicode(line.split()[1].rstrip(',').strip()) == u'\xb5m':
-	  self.header['WAVE_EXP'] = 1e-6
-	elif unicode(line.split()[1].rstrip(',').strip()) == u'nm':
-	  self.header['WAVE_EXP'] = 1e-9
-	self.header['FIELD'] = (float(line.split()[3].rstrip(',').strip()), float(line.split()[4].strip()))
-      if idx == 9:
-	self.header['P2V'] = float(line.split()[4].strip())
-	self.header['RMS'] = float(line.split()[8].strip())
-      if idx == 11:
-	self.header['EXIT_PUPIL_DIAMETER'] = float(line.split()[3].strip())
-	self.header['EXIT_PUPIL_DIAMETER_UNIT'] = str(line.split()[4].strip())
-      if idx == 13:
-	self.header['SAMPLING'] = (int(line.split()[3].strip()), int(line.split()[5].strip()))
-      if idx == 14:
-	self.header['CENTRE'] = (int(line.split()[4].rstrip(',').strip()), int(line.split()[6].strip()))
-      if None not in self.header.viewvalues():		# we've fully populated the header dict
-	return True
-    return False  
+    try:
+      for idx, line in enumerate(content):
+	if idx == 8:
+	  self.header['WAVE'] = Decimal(line.split()[0].strip())
+	  if unicode(line.split()[1].rstrip(',').strip()) == u'm':
+	    self.header['WAVE_EXP'] = Decimal('1')
+	  if unicode(line.split()[1].rstrip(',').strip()) == u'mm':
+	    self.header['WAVE_EXP'] = Decimal('1e-3')
+	  elif unicode(line.split()[1].rstrip(',').strip()) == u'\xb5m':
+	    self.header['WAVE_EXP'] = Decimal('1e-6')
+	  elif unicode(line.split()[1].rstrip(',').strip()) == u'nm':
+	    self.header['WAVE_EXP'] = Decimal('1e-9')
+	  self.header['FIELD'] = (float(line.split()[3].rstrip(',').strip()), float(line.split()[4].strip()))
+	if idx == 9:
+	  self.header['P2V'] = float(line.split()[4].strip())
+	  self.header['RMS'] = float(line.split()[8].strip())
+	if idx == 11:
+	  self.header['EXIT_PUPIL_DIAMETER'] = float(line.split()[3].strip())
+	  self.header['EXIT_PUPIL_DIAMETER_UNIT'] = str(line.split()[4].strip())
+	if idx == 13:
+	  self.header['SAMPLING'] = (int(line.split()[3].strip()), int(line.split()[5].strip()))
+	if idx == 14:
+	  self.header['CENTRE'] = (int(line.split()[4].rstrip(',').strip()), int(line.split()[6].strip()))
+	if None not in self.header.viewvalues():		# we've fully populated the header dict
+	  return True
+      return False  
+    except IndexError:
+      return False
   
   def _parseFileData(self, sampling):
     content = self._decode("UTF-16-LE")
@@ -225,9 +265,7 @@ class zwfe():
     if in_radians:
       return np.abs(data)*2*np.pi
     else:
-      return np.abs(data)*2*np.pi
-    
-    
+      return np.abs(data)*2*np.pi    
           
 	
 
