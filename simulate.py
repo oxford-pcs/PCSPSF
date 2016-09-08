@@ -38,9 +38,8 @@ from util import sf, sort_zemax_wfe_files, read_psf_simulation_config_file, read
 from zmx_parser import zwfe
 
 class sim():
-  def __init__(self, logger, plotter, resampling_im, nwaves, pupil_physical_radius, cfg, p):
-    self.logger 		= logger
-    self.plotter 		= plotter
+  def __init__(self, logger, resampling_im, nwaves, pupil_physical_radius, cfg, p):
+    self.logger 		= logger	
     self.resampling_im		= resampling_im
     self.nwaves			= nwaves
     self.PUPIL_RADIUS		= pupil_physical_radius
@@ -52,7 +51,9 @@ class sim():
     self.SLICE_WIDTH		= cfg['SLICE_WIDTH']
     self.RESAMPLE_TO		= cfg['RESAMPLE_TO']
     self.WFE_DATA		= p['WFE_DATA']
-
+    self.EPD			= p['GENERAL']['EPD']
+    
+    self.plotter 		= plotter.plotter()
     self.datacube		= cube(self.logger, [self.nwaves, self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], self.resampling_im)
    
   def run(self, wave, plot=True, verbose=True): 
@@ -87,6 +88,7 @@ class sim():
     cam = camera(self.CAMERA_FWNO)
     pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)  
     this_composite_image = composite_image([self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], wave, pupil)
+    self.plotter.addImagePlot("pupil", pupil.getAmplitude(shift=True, normalise=True), extent=pupil.getExtent(), xl='mm', yl='mm')
       
     '''
       Rescale pupil to yield same plate scale as [resampled_im]. 
@@ -96,9 +98,10 @@ class sim():
     '''
     im = pupil.toConjugateImage(wave, verbose=True)
     d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
-    pl.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
     im.resample(self.resampling_im.pscale, self.resampling_im.getDetectorHFOV(), verbose=True)
     pupil = im.toConjugatePupil(verbose=True)
+    self.plotter.addImagePlot("rescaled pupil", pupil.getAmplitude(shift=True, normalise=True), extent=pupil.getExtent(), xl='mm', yl='mm')
+    self.plotter.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
     
     #  Slice the FoV up and add WFE maps independently for each field.
     #
@@ -106,36 +109,38 @@ class sim():
     for s in range(self.NSLICES):	
       im = pupil.toConjugateImage(wave)					# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
       offset = (s-((self.NSLICES-1)/2))*self.SLICE_WIDTH
-      im.sliceUp(self.SLICE_WIDTH, offset=offset, gamma=self.resampling_im.pupil.gamma, slice_number=s+1, verbose=True)	# create a new pupil conjugate image instance for each slice
-      pl.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
+      im.sliceUp(self.SLICE_WIDTH, offset=offset, gamma=self.resampling_im.pupil.gamma, slice_number=s, verbose=True)	# create a new pupil conjugate image instance for each slice
+      self.plotter.addScatterPlot(None, [(-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 			      (-(self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
-      pl.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
+      self.plotter.addScatterPlot(None, [((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element), 
 			      ((self.SLICE_WIDTH*im.resolution_element)/2)+(offset*im.resolution_element)], [-hfov, hfov], xr=(-hfov, hfov), yr=(-hfov, hfov), overplot=True)
-      pl.addTextToPlot(hfov-(hfov/4), ((self.SLICE_WIDTH*im.resolution_element)/2)-((offset+0.5)*im.resolution_element), str(im.slice_number), color='w', fontsize=10)
+      self.plotter.addTextToPlot(hfov-(hfov/4), ((self.SLICE_WIDTH*im.resolution_element)/2)-((offset+0.5)*im.resolution_element), str(im.slice_number), color='w', fontsize=10)
       slices.append(im)
 	  
     for s in slices:	
       # FFT to pupil plane 
       #
       new_pupil = s.toConjugatePupil()					# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
-      pl.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
+      self.plotter.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
 		      extent=new_pupil.getExtent(), xl='mm', yl='mm')
       
       # Add phase error
       #
       if self.ADD_WFE:
+	this_wfe_file = None
 	for wfe in self.WFE_DATA:
-	  if w == wfe['WAVE']:
+	  if w == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_IDX']:
 	    this_wfe_file = wfe['PATH']
+	    self.logger.debug(" Using WFE map from file " + this_wfe_file)
+	if this_wfe_file == None:
+	  self.logger.critical(" Didn't find suitable WFE map!")
+	  exit(0)	  
 	wfe = zwfe(this_wfe_file, logger, verbose=verbose)
 	wfe.parse()
 	wfe_h = wfe.getHeader()	
-	wfe_d = wfe.getData(in_radians=True, pad_pupil=pupil)		# returns data same dimensions as pupil array, in radians
-	    
-	if wfe_h['SAMPLING'][0] != self.PUPIL_SAMPLING:
-	  self.logger.critical(" Zemax WFE sampling is not the same as the pupil sampling! (" + str(wfe_h['SAMPLING'][0]) + " != " + str(self.PUPIL_SAMPLING) + ")")
-	  exit(0)
-	pl.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
+	wfe_d = wfe.getData(in_radians=True, match_pupil=pupil)								# exit pupil
+	
+	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
 	new_pupil.addToPhase(wfe_d)
 	plt_title_prefix = "added phase error "
@@ -148,11 +153,11 @@ class sim():
       im = new_pupil.toConjugateImage(wave)				# SLICING SPACE CHANGE. move from pupil to image space. centered DC.
       
       d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
-      pl.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
+      self.plotter.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
       this_composite_image.addSlice(im)
     
     if plot:
-      pl.draw(5,5)
+      self.plotter.draw(5,5)
 
     return this_composite_image
 
@@ -167,7 +172,7 @@ if __name__== "__main__":
   parser.add_argument("-v", help="verbose", action="store_true")
   args = parser.parse_args()
 
-  #  Setup logger and plotter.
+  #  Setup logger.
   #
   logger = logging.getLogger()
   logger.setLevel(logging.DEBUG)
@@ -177,8 +182,6 @@ if __name__== "__main__":
   ch.setFormatter(formatter)
   logger.addHandler(ch)
 
-  pl = plotter.plotter()	
-  
   # Read config file and simulation parameters.
   #
   cfg = read_psf_simulation_config_file(logger, args.c)
@@ -189,7 +192,9 @@ if __name__== "__main__":
   
   # Get wavelength range and determine pupil radius from detector pixel size
   #
-  waves = np.arange(p['GENERAL']['WAVELENGTH_START'], p['GENERAL']['WAVELENGTH_END']+p['GENERAL']['WAVELENGTH_INTERVAL'], p['GENERAL']['WAVELENGTH_INTERVAL'], dtype=Decimal)
+  waves = np.arange(Decimal(str(p['GENERAL']['WAVELENGTH_START'])), 
+		    Decimal(str(p['GENERAL']['WAVELENGTH_END']+p['GENERAL']['WAVELENGTH_INTERVAL'])), 
+		    Decimal(str(p['GENERAL']['WAVELENGTH_INTERVAL'])), dtype=Decimal)
   focal_ratio = (2*cfg['DETECTOR_PIXEL_PITCH'])/cfg['PUPIL_REFERENCE_WAVELENGTH']
   pupil_physical_diameter = p['GENERAL']['CAMERA_EFFL']/focal_ratio
   pupil_physical_radius = pupil_physical_diameter/2
@@ -215,10 +220,10 @@ if __name__== "__main__":
   # 
   # The result from the simulation is an image instance, which we then add to a datacube.
   #
-  s = sim(logger, plotter, resampling_im, len(waves), pupil_physical_radius, cfg, p)  
+  s = sim(logger, resampling_im, len(waves), pupil_physical_radius, cfg, p)  
   
   for w in waves:
-    logger.info(" !!! Processing for a wavelength of " + str(w*1e9) + "nm...")   
+    logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + "nm...")     
     res = s.run(w, plot=args.p, verbose=args.v)
     s.datacube.addImage(res)	# this call adds the returned image instance to the datacube
   
@@ -229,7 +234,7 @@ if __name__== "__main__":
     s.datacube.write(args.fn, verbose=True)
     if args.fv:
       d = pyds9.DS9()
-      d.set("file cube.fits")
+      d.set("file " + args.fn)
       d.set('cmap heat')
       d.set('scale log')
       d.set('zoom 4')

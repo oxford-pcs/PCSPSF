@@ -35,6 +35,9 @@ class cube():
     for d in self.data:
       data.append(resample2d(d, -hfov_pre_rebin, hfov_pre_rebin, sampling_pre_rebin, -hfov_post_rebin, hfov_post_rebin, sampling_post_rebin))
     self.data = np.array(data)    
+    
+    self.pscale = sampling_post_rebin
+    self.hfov	= hfov_post_rebin
   
   def write(self, fname, verbose=False):
     header = pyfits.Header()    
@@ -60,8 +63,8 @@ class composite_image():
   '''
   def __init__(self, dim, wave, pupil):
     self.dim			= dim
-    self.wave			= wave
-    self.resolution_element	= np.degrees(wave/(pupil.physical_entrance_diameter*pupil.physical_gsize_mfactor))*3600		# "/resolution element
+    self.wave			= float(wave)
+    self.resolution_element	= np.degrees(self.wave/(pupil.physical_entrance_diameter*pupil.physical_gsize_mfactor))*3600	# "/resolution element
     self.pscale			= self.resolution_element/pupil.gamma								# "/px
     self.detector_FOV 		= self.pscale*pupil.gsize									# deg
     self.data 			= np.zeros(dim)

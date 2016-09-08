@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import numpy as np
+import pylab as plt
 
 from util import sf, resample2d
 
@@ -19,7 +20,7 @@ class pupil(object):
     
     # set up a new data grid if data field is empty
     if data is None:
-      self.gsize	= self.sampling*self.gamma			# size of padded grid in pixels
+      self.gsize	= self.sampling*self.gamma				# size of padded grid in pixels
       self._setup()
     else:
       self.gsize	= data.shape[0]
@@ -112,10 +113,10 @@ class circular(pupil):
 
     if verbose:
       self.logger.debug(" Entrance pupil diameter is " + str(sf(self.physical_entrance_diameter, 3)) + 'mm')
-      self.logger.debug(" With pupil sampling of " + str(self.sampling) + "x" + str(self.sampling) + ", this corresponds to a pupil plate scale of " + 
+      self.logger.debug(" With pupil sampling of " + str(sf(self.sampling, 4)) + "x" + str(sf(self.sampling, 4)) + ", this corresponds to a pupil plate scale of " + 
 			sf(self.pupil_plate_scale, 2) + "mm/px")
    
-    # this is just to maintain conformity with derived slicing class
+    # this is just to maintain some conformity with child slicing class circular_slice
     self.region					= (0, self.data.shape[0])
     self.number					= -1
    
@@ -136,11 +137,11 @@ class circular(pupil):
   class conjugateImage(object):
     def __init__(self, pupil, i_data, wave, verbose):
       self.pupil = pupil
-      self.wave	= wave
+      self.wave	= float(wave)
       self.data = i_data
-      self.is_sliced = False
+      self.is_sliced = False 
       
-      self.resolution_element	= np.degrees(float(self.wave)/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600	# "/resolution element
+      self.resolution_element	= np.degrees(self.wave/(self.pupil.physical_entrance_diameter*self.pupil.physical_gsize_mfactor))*3600		# "/resolution element
       self.pscale		= self.resolution_element/self.pupil.gamma									# "/px
       self.detector_FOV 	= self.pscale*self.pupil.gsize											# deg
       self.airy_disk_d		= 2.44*self.resolution_element											# "
@@ -150,7 +151,7 @@ class circular(pupil):
       if verbose:
 	self.pupil.logger.debug(" At a wavelength of " + sf(self.wave*10**9, 4) + "nm, a system with a focal ratio of " + sf(self.pupil.camera.wfno, 3) + " with a circular aperture would have the following properties:")
 	self.pupil.logger.debug(" -> " + sf(self.resolution_element, 4) + "\"" + " (" + sf(self.pupil.camera.s_resolution_element, 4) + "μm)" + " per resolution element λ/D")
-	self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel, with γ=" + str(self.pupil.gamma) + " pixels per resolution element")
+	self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel, with γ=" + str(sf(self.pupil.gamma, 2)) + " pixels per resolution element")
 	self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 4) + "\"" + " (" + sf(self.pupil.camera.s_detector_FOV, 6) + "μm)")
 	self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 4) + "\"" + " (" + sf(self.pupil.camera.s_airy_disk_d, 4) + "μm)")
      
@@ -211,7 +212,7 @@ class circular(pupil):
 
       return self.getAmplitude(power, shift, normalise, scale)[(self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2), (self.pupil.gsize/2)-(im_npix/2):(self.pupil.gsize/2)+(im_npix/2)], detector_HFOV_scaled
     
-    def sliceUp(self, width_el, gamma, offset=0, slice_number=1, verbose=False):
+    def sliceUp(self, width_el, gamma, offset=0, slice_number=0, verbose=False):
       '''
 	Takes a slice of width [width_el] resolution elements (taken at the resample_to gamma to ensure a uniform
 	slice width), offset by [offset] resolution elements from the centre, and pads the rest of the array with zeros.
@@ -277,7 +278,10 @@ class circular(pupil):
         self.data = self.data.astype(dtype=complex)
         
         # change some pupil parameters now we've rescaled
-        self.pupil.gamma 	= self.resolution_element/new_pscale			# note this will now no longer be an integer
+        self.pupil.gamma 		= self.resolution_element/new_pscale				# note this will now no longer be an integer
+        self.pupil.physical_gsize 	= self.pupil.physical_entrance_diameter*self.pupil.gamma
+        self.pupil.sampling		= self.pupil.gsize/self.pupil.gamma
+	self.pupil.pupil_plate_scale	= self.pupil.physical_gsize/self.pupil.gsize
         
         # change some image parameters now we've rescaled
         self.pscale 		= self.resolution_element/self.pupil.gamma
@@ -289,13 +293,13 @@ class circular(pupil):
         if verbose:
 	  self.pupil.logger.debug(" Resampled data now has the following properties: ")
 	  self.pupil.logger.debug(" -> " + sf(self.resolution_element, 4) + "\"" + " (" + sf(self.pupil.camera.s_resolution_element, 4) + "μm)" + " per resolution element λ/D")
-	  self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel, with γ=" + str(self.pupil.gamma) + " pixels per resolution element")
+	  self.pupil.logger.debug(" -> " + sf(self.pscale, 4) + "\"" + " (" + sf(self.pupil.camera.s_pscale, 4) + "μm)" + " per pixel, with γ=" + str(sf(self.pupil.gamma, 2)) + " pixels per resolution element")
 	  self.pupil.logger.debug(" -> a detector FoV of " + sf(self.detector_FOV, 4) + "\"" + " (" + sf(self.pupil.camera.s_detector_FOV, 6) + "μm)")
 	  self.pupil.logger.debug(" -> an airy disk diameter of " + sf(self.airy_disk_d, 4) + "\"" + " (" + sf(self.pupil.camera.s_airy_disk_d, 4) + "μm)")
 	  
 class circular_slice(circular):
   '''
-    This class has two extra fields on init compared with its parent, with details
+    This child class of circular has two extra fields on init, with details
     pertaining to the slice taken.
   '''
   def __init__(self, logger, camera, sampling, gamma, rad, number, region, verbose, data):

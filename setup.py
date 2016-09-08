@@ -70,7 +70,7 @@ if __name__== "__main__":
   # Set up precision by which to interpret wavelengths.
   #
   waves = np.arange(args.ws, args.we+args.wi, args.wi, dtype=Decimal)
- 
+  
   # Read parameters used in Zemax.
   #
   params = read_zemax_simulation_parameters_file(logger, args.z)

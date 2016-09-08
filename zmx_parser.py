@@ -4,7 +4,7 @@ from decimal import *
 import numpy as np
 import pylab as plt
 
-from util import sf
+from util import sf, resample2d
 
 class zfftpsf():
   def __init__(self, fname, logger, verbose=True):
@@ -214,59 +214,69 @@ class zwfe():
   def getHeader(self):
     return self.header 
   
-  def getData(self, in_radians=False, resize_pupil=None, pad_pupil=None, shift=True):
-    '''
-       If a pupil instance is given to resize_pupil, the data will be fourier scaled using 
-         the exit pupil diameter to match the specified pupil grid intervals, OR
-       If a pupil instance is given to pad_pupil, the data will be padded to match, this 
-         only really makes sense if the specified pupil has the same sampling!
-    '''
-    # translate unit to numerical quantity so output scale is physically meaningful
+  def getData(self, in_radians=True, match_pupil=None):
+
+    # Return WFE data, resampling, cropping and padding as appropriate.
+    #
     data = self.data
-    
-    if resize_pupil is not None:
+    if match_pupil is not None:
       if self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Millimeters":
-	gsize_mfactor = 1e-3
-      elif self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Meters":
 	gsize_mfactor = 1
+      elif self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Meters":
+	gsize_mfactor = 1e3
       else:
-	gsize_mfactor = 1e-3
+	gsize_mfactor = 1
 	self.logger.warning(" Unrecognised radius unit, assuming mm.")
-	
-      physical_exit_pupil_diameter = self.header['EXIT_PUPIL_DIAMETER']*gsize_mfactor
+      wfe_pupil_diameter = self.header['EXIT_PUPIL_DIAMETER']*gsize_mfactor			# mm
       
-      wfe_plate_scale = physical_exit_pupil_diameter/data.shape[0]							# m/px	
+      wfe_plate_scale = wfe_pupil_diameter/data.shape[0]					# mm/px	
+      self.logger.debug(" WFE map has a plate scale of " + str(sf(wfe_plate_scale, 2)) + "mm/px")
       
-      plate_scale_difference = wfe_plate_scale/(resize_pupil.pupil_plate_scale*resize_pupil.physical_gsize_mfactor)	# difference between plate scales
-      adjusted_pupil_size = plate_scale_difference*data.shape[0]							# required size of reshaped array
-      padding_required_post_fft = int(round((adjusted_pupil_size-data.shape[0])/2))					# padding required post fft (scale)
-      
-      if self.verbose:
-	self.logger.debug(" Pupil plate scale is: " + sf((resize_pupil.pupil_plate_scale*resize_pupil.physical_gsize_mfactor*1e3), 2) + "mm/px")
-	self.logger.debug(" WFE plate scale is: " + sf(wfe_plate_scale*1e3, 2) + "mm/px")
-      data = np.fft.fft2(data)
-      data = np.fft.fftshift(data)    
-      if padding_required_post_fft > 0:
-        data = np.pad(data, padding_required_post_fft, mode='constant')	
-      else:
-	self.logger.debug(" Pupil plate scale is coarser than WFE plate scale, pick a larger pupil sampling!")
+      # resample and crop to same plate scale as pupil
+      if wfe_plate_scale*data.shape[0] < match_pupil.pupil_plate_scale*match_pupil.sampling:
+	self.logger.critical(" WFE map extent is smaller than matched pupil extent, this would lead to extrapolation!")
 	exit(0)
-      data = np.fft.ifft2(data)
-      padding_required_post_ifft = (resize_pupil.gsize-data.shape[0])/2			# padding required post ifft (match entrance pupil array dimension)
-      data = np.pad(data, padding_required_post_ifft, mode='constant')
+      wfe_s		= -(data.shape[0]/2)*wfe_plate_scale
+      wfe_e		= -wfe_s
+      match_pupil_s 	= -(match_pupil.sampling/2)*match_pupil.pupil_plate_scale
+      match_pupil_e 	= -match_pupil_s
+      data = resample2d(data, wfe_s, wfe_e, wfe_plate_scale, match_pupil_s, match_pupil_e, match_pupil.pupil_plate_scale)
       
-      data = data*(np.max(np.abs(data))/np.max(np.abs(data)))  
-    elif pad_pupil is not None:
-      pad_by = (pad_pupil.sampling*(pad_pupil.gamma-1))/2
-      data = np.pad(data, pad_by, mode='constant')
+      self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data), 2)) + " waves.")
+
+      # the following forms a mask of the (possibly) resampled pupil through which the WFE can be applied
+      pupil_data = np.fft.fftshift(match_pupil.getAmplitude())
+      elements_close_to_zero = np.isclose(pupil_data, 0)
+      elements_all_other = np.logical_not(elements_close_to_zero)
+      pupil_data[elements_close_to_zero] 	= 0
+      pupil_data[elements_all_other]		= 1
       
-    if shift:
-      data = np.fft.fftshift(data)
-    if in_radians:
-      return np.abs(data)*2*np.pi
-    else:
-      return np.abs(data)*2*np.pi    
-          
-	
+      # pad the array to match pupil shape
+      #
+      # there's a caveat here, in that if the size of the pupil is odd, we will
+      # be unable to pad the WFE array evenly. This equates to roughly a fraction 
+      # of a percent misalignment in the worst case
+      #
+      pad_by = (match_pupil.gsize-data.shape[0])/2.
+      if data.shape[0] % 2 != 0:
+	pad_by = np.ceil(pad_by)				# adds 1 extra column and row of padding than required
+	data = np.pad(data, int(pad_by), mode='constant')
+	data = data[:-1,:-1]					# removes rightmost and bottommost padding
+      else:
+        data = np.pad(data, int(pad_by), mode='constant')
+      
+      # apply mask
+      data = data*pupil_data
+      
+      # inverse fft shift to match pupil format
+      data = np.fft.ifftshift(data)
+    
+      # convert to radians from waves, if requested
+      if in_radians:
+        data = np.abs(data)*2*np.pi
+      else:
+        data = np.abs(data)*2*np.pi   
+    
+      return data
 
 	
