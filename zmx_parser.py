@@ -214,42 +214,27 @@ class zwfe():
   def getHeader(self):
     return self.header 
   
-  def getData(self, in_radians=True, match_pupil=None):
+  def getData(self, EPD, match_pupil=None, in_radians=True):
 
-    # Return WFE data, resampling, cropping and padding as appropriate.
+    # Return WFE data, resampling and padding as appropriate.
     #
     data = self.data
     if match_pupil is not None:
-      if self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Millimeters":
-	gsize_mfactor = 1
-      elif self.header['EXIT_PUPIL_DIAMETER_UNIT'] == "Meters":
-	gsize_mfactor = 1e3
-      else:
-	gsize_mfactor = 1
-	self.logger.warning(" Unrecognised radius unit, assuming mm.")
-      wfe_pupil_diameter = self.header['EXIT_PUPIL_DIAMETER']*gsize_mfactor			# mm
-      
-      wfe_plate_scale = wfe_pupil_diameter/data.shape[0]					# mm/px	
+      wfe_pupil_diameter 	= EPD									# mm
+      wfe_plate_scale 		= wfe_pupil_diameter/data.shape[0]					# mm/px	
       self.logger.debug(" WFE map has a plate scale of " + str(sf(wfe_plate_scale, 2)) + "mm/px")
       
       # resample and crop to same plate scale as pupil
       if wfe_plate_scale*data.shape[0] < match_pupil.pupil_plate_scale*match_pupil.sampling:
 	self.logger.critical(" WFE map extent is smaller than matched pupil extent, this would lead to extrapolation!")
 	exit(0)
-      wfe_s		= -(data.shape[0]/2)*wfe_plate_scale
-      wfe_e		= -wfe_s
-      match_pupil_s 	= -(match_pupil.sampling/2)*match_pupil.pupil_plate_scale
-      match_pupil_e 	= -match_pupil_s
-      data = resample2d(data, wfe_s, wfe_e, wfe_plate_scale, match_pupil_s, match_pupil_e, match_pupil.pupil_plate_scale)
+      wfe_s		 = -(data.shape[0]/2)*wfe_plate_scale
+      wfe_e		 = -wfe_s
+      match_pupil_s 	 = -(match_pupil.sampling/2)*match_pupil.pupil_plate_scale
+      match_pupil_e 	 = -match_pupil_s
+      data		 = resample2d(data, wfe_s, wfe_e, wfe_plate_scale, wfe_s, wfe_e, match_pupil.pupil_plate_scale, gauss_sig=0)
       
       self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data), 2)) + " waves.")
-
-      # the following forms a mask of the (possibly) resampled pupil through which the WFE can be applied
-      pupil_data = np.fft.fftshift(match_pupil.getAmplitude())
-      elements_close_to_zero = np.isclose(pupil_data, 0)
-      elements_all_other = np.logical_not(elements_close_to_zero)
-      pupil_data[elements_close_to_zero] 	= 0
-      pupil_data[elements_all_other]		= 1
       
       # pad the array to match pupil shape
       #
@@ -264,10 +249,7 @@ class zwfe():
 	data = data[:-1,:-1]					# removes rightmost and bottommost padding
       else:
         data = np.pad(data, int(pad_by), mode='constant')
-      
-      # apply mask
-      data = data*pupil_data
-      
+   
       # inverse fft shift to match pupil format
       data = np.fft.ifftshift(data)
     

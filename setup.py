@@ -5,16 +5,6 @@
 
   This utility program generates a JSON formatted configuration file required by the simulation.
   
-  The configuration file contains information on:
-  - The wavelengths to run the simulation over		-> GENERAL
-  - The number of slices to use, if any			-> GENERAL
-  - Slit details (width, separation, stagger)		-> GENERAL
-  - Which Zemax configuration was used			-> GENERAL
-  - Wavelength ranges					-> GENERAL
-  - The entrance pupil diameter (from Zemax) 		-> ZSYSTEM_DATA
-  - The WFNO of the system (from Zemax) 		-> ZSYSTEM_DATA
-  - WFE maps (from Zemax) if flag is set		-> WFE_DATA
-
   Only if a homogenous (in that they have the same field locations) set of WFE maps is found for each 
   of the wavelengths specified will the program be able to proceed. 
   
@@ -28,7 +18,7 @@
   EXAMPLES
   
   (using defaults)
-  $ python setup.py -w -f 
+  $ python setup.py -w
 '''
 
 import argparse
@@ -36,6 +26,7 @@ import logging
 import json
 from decimal import *
 from collections import Counter
+import os
 
 import numpy as np
 
@@ -45,9 +36,9 @@ from zmx_parser import zsystemdata
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("-ws", help="wavelength start", default="650e-9", type=Decimal)
-  parser.add_argument("-we", help="wavelength end", default="675e-9", type=Decimal)
+  parser.add_argument("-we", help="wavelength end", default="1000e-9", type=Decimal)
   parser.add_argument("-wi", help="wavelength interval", default="25e-9", type=Decimal)
-  parser.add_argument("-z", help="Zemax parameters file path", default="/home/barnsley/ELT-PCS/scripts/metadata/2/ZSIM_PARAMS.TXT", type=str)
+  parser.add_argument("-z", help="Zemax parameters file path", default="/home/barnsley/ELT-PCS/scripts/metadata/1/ZSIM_PARAMS.TXT", type=str)
   parser.add_argument("-s", help="sort fields by x or y object angle", default='y', type=str)
   parser.add_argument("-f", help="make output file", action="store_true")
   parser.add_argument("-fn", help="output filename", action="store", default="config.json")
@@ -63,12 +54,10 @@ if __name__== "__main__":
   logger.setLevel(logging.DEBUG)
   ch = logging.StreamHandler()
   ch.setLevel(logging.DEBUG)
-  formatter = logging.Formatter("%(levelname)s:%(asctime)s:%(message)s")
+  formatter = logging.Formatter("(" + str(os.getpid()) + ") %(asctime)s:%(levelname)s: %(message)s")
   ch.setFormatter(formatter)
   logger.addHandler(ch)
 
-  # Set up precision by which to interpret wavelengths.
-  #
   waves = np.arange(args.ws, args.we+args.wi, args.wi, dtype=Decimal)
   
   # Read parameters used in Zemax.
@@ -125,9 +114,12 @@ if __name__== "__main__":
 	"WAVELENGTH_START":float(args.ws), 
 	"WAVELENGTH_END":float(args.we), 
 	"WAVELENGTH_INTERVAL":float(args.wi),
-	"SLICE_WIDTH": params['SLICE_WIDTH'],
-	"INTER_SLICE_WIDTH": params['INTER_SLICE_WIDTH'],
-	"SLICE_STAGGER_WIDTH": params['SLICE_STAGGER_WIDTH'],
+	"SLICE_LENGTH": params['SLICE_LENGTH'],
+	"INTER_SLICE_LENGTH": params['INTER_SLICE_LENGTH'],
+	"SLICE_STAGGER": params['SLICE_STAGGER'],
+	"WFE_SAMPLING": params['WFE_SAMPLING'],
+	"COLLIMATOR_LENS_PATH": params['COLLIMATOR_LENS_PATH'],
+	"CAMERA_LENS_PATH": params['CAMERA_LENS_PATH'],
 	"CON_COLLIMATOR": params['CON_COLLIMATOR'],
 	"CON_CAMERA": params['CON_CAMERA'],
 	"CAMERA_WFNO": params['CAMERA_WFNO'],

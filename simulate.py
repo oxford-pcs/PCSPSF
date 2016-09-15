@@ -38,25 +38,25 @@ from util import sf, sort_zemax_wfe_files, read_psf_simulation_config_file, read
 from zmx_parser import zwfe
 
 class sim():
-  def __init__(self, logger, resampling_im, nwaves, pupil_physical_radius, cfg, p):
+  def __init__(self, logger, plotter, resampling_im, nwaves, pupil_physical_radius, cfg, p, args):
     self.logger 		= logger	
+    self.plotter 		= plotter
     self.resampling_im		= resampling_im
     self.nwaves			= nwaves
     self.PUPIL_RADIUS		= pupil_physical_radius
     self.CAMERA_FWNO		= p['GENERAL']['CAMERA_WFNO']
     self.PUPIL_SAMPLING 	= cfg['PUPIL_SAMPLING']
     self.PUPIL_GAMMA		= cfg['PUPIL_GAMMA']
-    self.ADD_WFE		= cfg['DO_WFE']
+    self.ADD_WFE		= args.wfe
     self.NSLICES		= p['GENERAL']['NSLICES']
     self.SLICE_WIDTH		= cfg['SLICE_WIDTH']
     self.RESAMPLE_TO		= cfg['RESAMPLE_TO']
     self.WFE_DATA		= p['WFE_DATA']
     self.EPD			= p['GENERAL']['EPD']
     
-    self.plotter 		= plotter.plotter()
     self.datacube		= cube(self.logger, [self.nwaves, self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], self.resampling_im)
    
-  def run(self, wave, plot=True, verbose=True): 
+  def run(self, wave, verbose=True): 
     #  Sanity checks.
     #
     try:
@@ -87,7 +87,7 @@ class sim():
     #
     cam = camera(self.CAMERA_FWNO)
     pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)  
-    this_composite_image = composite_image([self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], wave, pupil)
+    this_composite_image = composite_image(self.logger, [self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], wave, pupil)
     self.plotter.addImagePlot("pupil", pupil.getAmplitude(shift=True, normalise=True), extent=pupil.getExtent(), xl='mm', yl='mm')
       
     '''
@@ -129,16 +129,16 @@ class sim():
       if self.ADD_WFE:
 	this_wfe_file = None
 	for wfe in self.WFE_DATA:
-	  if w == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_IDX']:
+	  if wave == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_IDX']:
 	    this_wfe_file = wfe['PATH']
 	    self.logger.debug(" Using WFE map from file " + this_wfe_file)
 	if this_wfe_file == None:
 	  self.logger.critical(" Didn't find suitable WFE map!")
 	  exit(0)	  
-	wfe = zwfe(this_wfe_file, logger, verbose=verbose)
+	wfe = zwfe(this_wfe_file, self.logger, verbose=verbose)
 	wfe.parse()
 	wfe_h = wfe.getHeader()	
-	wfe_d = wfe.getData(in_radians=True, match_pupil=pupil)								# exit pupil
+	wfe_d = wfe.getData(self.EPD, match_pupil=pupil, in_radians=True)							# entrance pupil
 	
 	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
@@ -155,33 +155,10 @@ class sim():
       d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
       self.plotter.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
       this_composite_image.addSlice(im)
-    
-    if plot:
-      self.plotter.draw(5,5)
-
+      
     return this_composite_image
-
-if __name__== "__main__":
-  parser = argparse.ArgumentParser()
-  parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
-  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/home/barnsley/ELT-PCS/scripts/metadata/2/config.json", type=str)
-  parser.add_argument("-p", help="plot?", action="store_true")
-  parser.add_argument("-f", help="create fits?", action="store_true")
-  parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
-  parser.add_argument("-fv", help="view fits?", action="store_true")
-  parser.add_argument("-v", help="verbose", action="store_true")
-  args = parser.parse_args()
-
-  #  Setup logger.
-  #
-  logger = logging.getLogger()
-  logger.setLevel(logging.DEBUG)
-  ch = logging.StreamHandler()
-  ch.setLevel(logging.DEBUG)
-  formatter = logging.Formatter("%(levelname)s:%(asctime)s:%(message)s")
-  ch.setFormatter(formatter)
-  logger.addHandler(ch)
-
+  
+def run(args, logger, plotter):
   # Read config file and simulation parameters.
   #
   cfg = read_psf_simulation_config_file(logger, args.c)
@@ -195,7 +172,7 @@ if __name__== "__main__":
   waves = np.arange(Decimal(str(p['GENERAL']['WAVELENGTH_START'])), 
 		    Decimal(str(p['GENERAL']['WAVELENGTH_END']+p['GENERAL']['WAVELENGTH_INTERVAL'])), 
 		    Decimal(str(p['GENERAL']['WAVELENGTH_INTERVAL'])), dtype=Decimal)
-  focal_ratio = (2*cfg['DETECTOR_PIXEL_PITCH'])/cfg['PUPIL_REFERENCE_WAVELENGTH']
+  focal_ratio = (2*float(args.d))/cfg['PUPIL_REFERENCE_WAVELENGTH']
   pupil_physical_diameter = p['GENERAL']['CAMERA_EFFL']/focal_ratio
   pupil_physical_radius = pupil_physical_diameter/2
 
@@ -220,18 +197,28 @@ if __name__== "__main__":
   # 
   # The result from the simulation is an image instance, which we then add to a datacube.
   #
-  s = sim(logger, resampling_im, len(waves), pupil_physical_radius, cfg, p)  
+  s = sim(logger, plotter, resampling_im, len(waves), pupil_physical_radius, cfg, p, args)  
   
-  for w in waves:
-    logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + "nm...")     
-    res = s.run(w, plot=args.p, verbose=args.v)
-    s.datacube.addImage(res)	# this call adds the returned image instance to the datacube
+  for idx, w in enumerate(waves):
+    logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + "nm...") 
+    
+    this_st = time.time()
+    composite_image = s.run(w, verbose=args.v)
+    plotter.addImagePlot("composite image (may require zoom!)", composite_image.getAmplitude(normalise=True), extent=composite_image.getExtent(), xl='arcsec', yl='arcsec')
+    if args.p:
+      plotter.draw(5,5)				#FIXME: static cols/rows
+    this_duration = time.time()-this_st
+    
+    if idx>0:
+      logger.debug(" Last wavelength iteration took " + str(int(this_duration)) + "s, expected time to completion is " + str(int(((len(waves)-(idx+1))*this_duration))) + "s.")
+    
+    s.datacube.addImage(composite_image)	# this call adds the returned image instance to the datacube
   
   # Make and view output.
   #
   if args.f:
     s.datacube.resampleAndCrop(cfg['RESAMPLING_FACTOR'], cfg['HFOV'])
-    s.datacube.write(args.fn, verbose=True)
+    s.datacube.write(args.fn, cfg, p, args, pupil_physical_diameter)
     if args.fv:
       d = pyds9.DS9()
       d.set("file " + args.fn)
@@ -239,6 +226,31 @@ if __name__== "__main__":
       d.set('scale log')
       d.set('zoom 4')
     
-  fi = time.time()
-  duration = fi-st
-  logger.debug(" Full simulation completed in " + str(sf(duration, 4)) + "s.")
+  duration = time.time()-st
+  logger.debug(" This simulation completed in " + str(sf(duration, 4)) + "s.")
+
+if __name__== "__main__":
+  parser = argparse.ArgumentParser()
+  parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
+  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/home/barnsley/ELT-PCS/scripts/metadata/2/config.json", type=str)
+  parser.add_argument("-p", help="plot?", action="store_true")
+  parser.add_argument("-f", help="create fits file?", action="store_true")
+  parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
+  parser.add_argument("-fv", help="view cube?", action="store_true")
+  parser.add_argument("-v", help="verbose", action="store_true")
+  parser.add_argument("-d", help="detector pixel pitch", type=Decimal, default='15e-6')
+  parser.add_argument("-wfe", help="add WFE error", action="store_true")
+  args = parser.parse_args()
+  
+  #  Setup logger and plotter.
+  #
+  logger = logging.getLogger(args.fn)
+  logger.setLevel(logging.DEBUG)
+  ch = logging.StreamHandler()
+  ch.setLevel(logging.DEBUG)
+  formatter = logging.Formatter("(" + str(os.getpid()) + ") %(asctime)s:%(levelname)s: %(message)s")
+  ch.setFormatter(formatter)
+  logger.addHandler(ch)
+  plotter = plotter.plotter()
+
+  run(args, logger, plotter)

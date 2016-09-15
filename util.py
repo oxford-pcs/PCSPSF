@@ -6,7 +6,9 @@ from decimal import *
 import json
 
 import numpy as np
+import pylab as plt
 from scipy.interpolate import RectBivariateSpline
+from scipy.ndimage.filters import median_filter, gaussian_filter
 
 def _decode(encoding, fp):
   fp = codecs.open(fp, "r", encoding)
@@ -26,15 +28,12 @@ def read_psf_simulation_config_file(logger, path):
   c = ConfigParser.ConfigParser()
   c.read(path)
   
-  cfg = {}
-  cfg['DETECTOR_PIXEL_PITCH']		= float(c.get("general", "detector_pixel_pitch"))
-  cfg['DO_WFE']				= bool(int(c.get("general", "do_wfe")))
-  
+  cfg = {} 
   cfg['RESAMPLING_FACTOR']		= int(c.get("output", "resampling_factor"))     
   cfg['HFOV']				= float(c.get("output", "hfov"))    
   
-  cfg['PUPIL_SAMPLING']			= float(c.get("pupil", "pupil_sampling"))
-  cfg['PUPIL_GAMMA'] 			= float(c.get("pupil", "pupil_gamma"))
+  cfg['PUPIL_SAMPLING']			= int(c.get("pupil", "pupil_sampling"))
+  cfg['PUPIL_GAMMA'] 			= int(c.get("pupil", "pupil_gamma"))
   cfg['PUPIL_REFERENCE_WAVELENGTH']	= float(c.get("pupil", "pupil_reference_wavelength"))
   cfg['RESAMPLE_TO']			= Decimal(c.get("pupil", "resample_to"))
  
@@ -57,20 +56,27 @@ def read_zemax_simulation_parameters_file(logger, path):
   content = _decode("UTF-16-LE", path)
   res = {}
   for line in content:
-    key = line.split(':')[0].strip()
-    val = line.split(':')[1].strip()
+    key = line.split()[0].strip(': ')
+    val = line.split()[1].strip()
+    
     if "NSLITLETS" in key:
       res['NSLICES'] = int(float(val))
-    if "SLIT_WIDTH" in key:
-      res['SLICE_WIDTH'] = float(val)
-    if "INTER_SLIT_WIDTH" in key:
-      res['INTER_SLICE_WIDTH'] = float(val)
-    if "SLIT_STAGGER_WIDTH" in key:
-      res['SLICE_STAGGER_WIDTH'] = float(val)
+    if "SLIT_LENGTH" in key:
+      res['SLICE_LENGTH'] = float(val)
+    if "INTER_SLIT_LENGTH" in key:
+      res['INTER_SLICE_LENGTH'] = float(val)
+    if "SLIT_STAGGER" in key:
+      res['SLICE_STAGGER'] = float(val)
     if "CON_COLLIMATOR" in key:
       res['CON_COLLIMATOR'] = int(float(val))
     if "CON_CAMERA" in key:
       res['CON_CAMERA'] = int(float(val))
+    if "WFE_SAMPLING" in key:
+      res['WFE_SAMPLING'] = int(float(val))
+    if "COLLIMATOR_LENS_PATH" in key:
+      res['COLLIMATOR_LENS_PATH'] = str(val)
+    if "CAMERA_LENS_PATH" in key:
+      res['CAMERA_LENS_PATH'] = str(val)
     if "WFE_FILE_PREFIX" in key:
       res['WFE_FILE_PREFIX'] = str(val)
     if "SYSTEM_DATA_FILE" in key:
@@ -85,7 +91,7 @@ def read_zemax_simulation_parameters_file(logger, path):
       res['EPD'] = float(val)
   return res
 
-def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3):
+def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, gauss_sig=0):
   '''
     Resample a square 2D input grid with extents defined by [i_s] and [i_e] with 
     increment [i_i] to a new 2D grid with extents defined by [o_s] and [o_e] with 
@@ -101,7 +107,12 @@ def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3):
   # evaluate this spline at new points on output grid
   grid_x, grid_y = np.mgrid[o_s:o_e:o_i, o_s:o_e:o_i]
   
-  return G.ev(grid_x, grid_y)
+  data = G.ev(grid_x, grid_y)
+  
+  if gauss_sig != 0:
+    data = gaussian_filter(data, gauss_sig)
+
+  return data
 
 def sf(fig, n):
   '''
