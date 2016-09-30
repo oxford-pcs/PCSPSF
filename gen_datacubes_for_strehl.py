@@ -38,10 +38,10 @@ if __name__== "__main__":
   parser.add_argument("-fv", help="view cubes?", action="store_true")
   parser.add_argument("-fp", help="file prefix", default="cube_", type=str)
   parser.add_argument("-o", help="output directory", default="out", type=str)
-  parser.add_argument("-ds", help="wavelength start", default="9e-6", type=Decimal)
-  parser.add_argument("-de", help="wavelength end", default="15e-6", type=Decimal)
-  parser.add_argument("-di", help="wavelength interval", default="3e-6", type=Decimal)
-  parser.add_argument("-nc", help="number of processes (or cores)", default=6, type=int)
+  parser.add_argument("-ds", help="detector pixel pitch start", default="9e-6", type=Decimal)
+  parser.add_argument("-de", help="detector pixel pitch end", default="15e-6", type=Decimal)
+  parser.add_argument("-di", help="detector pixel pitch interval", default="3e-6", type=Decimal)
+  parser.add_argument("-nc", help="number of processes (or cores)", default=4, type=int)
   args = parser.parse_args()
   
   #  Setup logger.
@@ -90,10 +90,18 @@ if __name__== "__main__":
     args.fn = args.o.rstrip('/') + "/" + args.fp + "nowfe_" + str(p*Decimal('1e6')) + ".fits"
     res = workers.apply_async(subprocess.call, [call + ['-fn', args.fn]]) # no worker callback called when complete  
     
-    # WFE
-    args.fn = args.o.rstrip('/') + "/" + args.fp + "wfe_" + str(p*Decimal('1e6')) + ".fits"
-    res = workers.apply_async(subprocess.call, [call + ['-fn', args.fn, '-wfe']]) # no worker callback called when complete  
+    # COLLIMATOR WFE
+    args.fn = args.o.rstrip('/') + "/" + args.fp + "wfe_col_" + str(p*Decimal('1e6')) + ".fits"
+    res = workers.apply_async(subprocess.call, [call + ['-fn', args.fn, '-cow']]) # no worker callback called when complete  
     
+    # CAMERA WFE
+    args.fn = args.o.rstrip('/') + "/" + args.fp + "wfe_cam_" + str(p*Decimal('1e6')) + ".fits"
+    res = workers.apply_async(subprocess.call, [call + ['-fn', args.fn, '-caw']]) # no worker callback called when complete  
+    
+    # BOTH WFE
+    args.fn = args.o.rstrip('/') + "/" + args.fp + "wfe_colcam_" + str(p*Decimal('1e6')) + ".fits"
+    res = workers.apply_async(subprocess.call, [call + ['-fn', args.fn, '-caw']]) # no worker callback called when complete  
+   
   # Rejoin this main thread upon completion
   #
   workers.close()

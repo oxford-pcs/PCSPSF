@@ -78,7 +78,8 @@ class cube():
     header.append(('EPD', p['GENERAL']['EPD'], 'entrance pupil diameter (mm)'))
     header.append(('NSLICES', p['GENERAL']['NSLICES'], 'number of slices'))
     header.append(('DETPITCH', str(args.d), 'detector pixel pitch (m)'))
-    header.append(('HASWFE', args.wfe, 'has WFE been added?'))
+    header.append(('HASCOWFE', args.cow, 'has collimator WFE been added?'))
+    header.append(('HASCAWFE', args.caw, 'has camera WFE been added?'))
     header.append(('STAPUDIA', float(sf(pupil_physical_diameter, 4)), 'starting pupil physical diameter (mm)'))
     if os.path.exists(fname):
       os.remove(fname)

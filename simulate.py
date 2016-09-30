@@ -47,11 +47,13 @@ class sim():
     self.CAMERA_FWNO		= p['GENERAL']['CAMERA_WFNO']
     self.PUPIL_SAMPLING 	= cfg['PUPIL_SAMPLING']
     self.PUPIL_GAMMA		= cfg['PUPIL_GAMMA']
-    self.ADD_WFE		= args.wfe
+    self.ADD_CAM_WFE		= args.caw
+    self.ADD_COL_WFE		= args.cow
     self.NSLICES		= p['GENERAL']['NSLICES']
     self.SLICE_WIDTH		= cfg['SLICE_WIDTH']
     self.RESAMPLE_TO		= cfg['RESAMPLE_TO']
-    self.WFE_DATA		= p['WFE_DATA']
+    self.CAM_WFE_DATA		= p['CAM_WFE_DATA']
+    self.COL_WFE_DATA		= p['COL_WFE_DATA']
     self.EPD			= p['GENERAL']['EPD']
     
     self.datacube		= cube(self.logger, [self.nwaves, self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], self.resampling_im)
@@ -126,12 +128,14 @@ class sim():
       
       # Add phase error
       #
-      if self.ADD_WFE:
+      # COLLIMATOR
+      #
+      if self.ADD_COL_WFE:
 	this_wfe_file = None
-	for wfe in self.WFE_DATA:
-	  if wave == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_IDX']:
+	for wfe in self.COL_WFE_DATA:
+	  if wave == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_INDEX']:
 	    this_wfe_file = wfe['PATH']
-	    self.logger.debug(" Using WFE map from file " + this_wfe_file)
+	    self.logger.debug(" Using collimator WFE map from file " + this_wfe_file)
 	if this_wfe_file == None:
 	  self.logger.critical(" Didn't find suitable WFE map!")
 	  exit(0)	  
@@ -144,7 +148,31 @@ class sim():
 
 	new_pupil.addToPhase(wfe_d)
 	plt_title_prefix = "added phase error "
-	self.logger.debug(" Added phase error for slice " + str(s.slice_number) + ".")
+	self.logger.debug(" Added collimator phase error for slice " + str(s.slice_number) + ".")
+      else:
+	plt_title_prefix = ""
+        
+      # CAMERA  
+      #
+      if self.ADD_CAM_WFE:
+	this_wfe_file = None
+	for wfe in self.CAM_WFE_DATA:
+	  if wave == Decimal(str(wfe['WAVE'])) and s.slice_number == wfe['SLICE_INDEX']:
+	    this_wfe_file = wfe['PATH']
+	    self.logger.debug(" Using camera WFE map from file " + this_wfe_file)
+	if this_wfe_file == None:
+	  self.logger.critical(" Didn't find suitable WFE map!")
+	  exit(0)	  
+	wfe = zwfe(this_wfe_file, self.logger, verbose=verbose)
+	wfe.parse()
+	wfe_h = wfe.getHeader()	
+	wfe_d = wfe.getData(self.EPD, match_pupil=pupil, in_radians=True)							# entrance pupil
+	
+	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
+
+	new_pupil.addToPhase(wfe_d)
+	plt_title_prefix = "added phase error "
+	self.logger.debug(" Added camera phase error for slice " + str(s.slice_number) + ".")
       else:
 	plt_title_prefix = ""
   
@@ -232,14 +260,15 @@ def run(args, logger, plotter):
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
-  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/home/barnsley/ELT-PCS/scripts/metadata/2/config.json", type=str)
+  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/1/config.json", type=str)
   parser.add_argument("-p", help="plot?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
   parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
   parser.add_argument("-fv", help="view cube?", action="store_true")
   parser.add_argument("-v", help="verbose", action="store_true")
   parser.add_argument("-d", help="detector pixel pitch", type=Decimal, default='15e-6')
-  parser.add_argument("-wfe", help="add WFE error", action="store_true")
+  parser.add_argument("-caw", help="add WFE error", action="store_true")
+  parser.add_argument("-cow", help="add WFE error", action="store_true")
   args = parser.parse_args()
   
   #  Setup logger and plotter.

@@ -49,7 +49,8 @@ def read_psf_simulation_parameters_file(logger, path):
     p = json.load(fp)
   res = {}
   res['GENERAL'] 	= p[0]['GENERAL']
-  res['WFE_DATA']	= p[1]['WFE_DATA']
+  res['COL_WFE_DATA']	= p[1]['COL_WFE_DATA']
+  res['CAM_WFE_DATA']	= p[2]['CAM_WFE_DATA']
   return res
 
 def read_zemax_simulation_parameters_file(logger, path):
@@ -77,8 +78,10 @@ def read_zemax_simulation_parameters_file(logger, path):
       res['COLLIMATOR_LENS_PATH'] = str(val)
     if "CAMERA_LENS_PATH" in key:
       res['CAMERA_LENS_PATH'] = str(val)
-    if "WFE_FILE_PREFIX" in key:
-      res['WFE_FILE_PREFIX'] = str(val)
+    if "WFE_COL_FILE_PREFIX" in key:
+      res['WFE_COL_FILE_PREFIX'] = str(val)
+    if "WFE_CAM_FILE_PREFIX" in key:
+      res['WFE_CAM_FILE_PREFIX'] = str(val)
     if "SYSTEM_DATA_FILE" in key:
       res['SYSTEM_DATA_FILE'] = str(val)   
     if "PARAMETERS_FILE" in key:
@@ -89,9 +92,16 @@ def read_zemax_simulation_parameters_file(logger, path):
       res['CAMERA_EFFL'] = float(val)
     if "EPD" in key:
       res['EPD'] = float(val)
+    if "WAVE_START" in key:
+      res['WAVE_START'] = Decimal(str(val))   
+    if "WAVE_END" in key:
+      res['WAVE_END'] = Decimal(str(val))
+    if "WAVE_INTERVAL" in key:
+      res['WAVE_INTERVAL'] = Decimal(str(val))
+      
   return res
 
-def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, gauss_sig=0):
+def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, gauss_sig=0, median_boxcar_size=0, clip=True):
   '''
     Resample a square 2D input grid with extents defined by [i_s] and [i_e] with 
     increment [i_i] to a new 2D grid with extents defined by [o_s] and [o_e] with 
@@ -111,6 +121,16 @@ def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, gauss_sig=
   
   if gauss_sig != 0:
     data = gaussian_filter(data, gauss_sig)
+    
+  if median_boxcar_size != 0:
+    data = median_filter(data, median_boxcar_size)
+    
+  if clip:
+    input_max = np.max(i_data)
+    input_min = np.min(i_data)
+    
+    data[np.where(data>input_max)] = input_max
+    data[np.where(data<input_min)] = input_min
 
   return data
 
@@ -123,7 +143,7 @@ def sf(fig, n):
   format = '%.' + str(n) + 'g'
   return '%s' % float(format % float(fig))
 
-def sort_zemax_wfe_files(logger, wfe_dir, prefix, waves, nfields=1):
+def sort_zemax_wfe_files(logger, wfe_dir, prefix, waves, nfields):
   '''
     Search through a directory to find valid Zemax WFE files.
   '''
@@ -150,39 +170,19 @@ def sort_zemax_wfe_files(logger, wfe_dir, prefix, waves, nfields=1):
       if found_wavelength_match is False:
 	logger.debug(" - Wavelength not found in requested list, ignoring")
 	continue
+      s = int(f.lstrip(prefix).split('_')[0])			# slice number from file name (PREFIX_SLICENUM_WAVELENGTH)
       logger.debug(" - Corresponds to requested wavelength of " + str(sf(w*10**9, 3)) + "nm")
       logger.debug(" - Field: " + str(h['FIELD'][0]) + ", " + str(h['FIELD'][1]))
-      res.append({'PATH': f_fullpath, 'WAVE': float(w), 'FIELD': h['FIELD']})
+      logger.debug(" - Slice Index: " + str(s))
+      res.append({'PATH': f_fullpath, 'WAVE': float(w), 'FIELD': h['FIELD'], 'SLICE_INDEX': s})
     else:
       logger.debug(" - This is not a valid WFE map, ignoring")
   
-  # Sanity checks.
-  ## 1) Check to see if result is empty
-  if len(res) == 0:
-    logger.critical(" No WFE maps found in this directory!")
-    exit(0)
-  
-  total = len(res)
-  counter_waves = Counter([r['WAVE'] for r in res])		# {WAVELENGTH1:n1, WAVELENGTH2:n2...}
-  counter_fields = Counter([r['FIELD'] for r in res])
-  
-  ## 2) Check we have an entry for each required wavelength
-  if len(counter_waves.values()) != len(waves):			
-    logger.critical(" WFE maps are not present for all wavelengths!")
-    exit(0) 
-    
-  ## 3) Check to see that, for this result, we have 
-  ##    i) an equal number of files for each wavelength, and 
-  ##    ii) an equal number of files for each field
-  ##    
-  ##    This is done by checking that there is only one unique value in [counter_waves] and [counter_fields].
-  if len(set(counter_waves.values())) != 1 and len(set(counter_fields.values())) != 1:
-    logger.critical(" The WFE maps parsed form an incomplete set!")  
-    exit(0)
-   
-  ## 4) Check we have at least as many fields as slices (default is 1 if not slicing)
-  if len(counter_fields) < nfields:
-    logger.critical(" Insufficient fields for number of slices!")  
+  ## Check to see that we have the correct number of WFE maps.			
+  ## TODO: really need more rigorous checking that we have the same number of wavelengths for each field etc.
+  ## 
+  if len(res) != len(waves)*nfields or len(res) != len(waves)*nfields:
+    logger.critical(" Incorrect number of WFE maps found!")  
     exit(0) 
 
   return res

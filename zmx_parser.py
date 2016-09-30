@@ -234,31 +234,45 @@ class zwfe():
       match_pupil_e 	 = -match_pupil_s
       data		 = resample2d(data, wfe_s, wfe_e, wfe_plate_scale, wfe_s, wfe_e, match_pupil.pupil_plate_scale, gauss_sig=0)
       
+      ## need to either pad array (if resampled data shape is smaller than matched pupil data shape) or 
+      ## crop (vice versa).
+      if data.shape[0] == match_pupil.data.shape[0]:
+	pass
+      elif data.shape[0] < match_pupil.data.shape[0]:
+	#
+	# pad the array to match pupil shape
+	#
+	# there's a caveat here, in that if the size of the pupil is odd, we will
+	# be unable to pad the WFE array evenly. This equates to typically a fraction 
+	# of a percent misalignment in the worst case
+	#
+	pad_by = (match_pupil.gsize-data.shape[0])/2.
+	if data.shape[0] % 2 != 0:
+	  pad_by = np.ceil(pad_by)				# adds 1 extra column and row of padding than required
+	  data = np.pad(data, int(pad_by), mode='constant')
+	  data = data[:-1,:-1]					# removes rightmost and bottommost padding
+	else:
+	  data = np.pad(data, int(pad_by), mode='constant')
+      else:
+	#
+	# crop the array to match pupil shape
+	#
+	# see caveat above
+	half_matched_pupil_size = match_pupil.data.shape[0]/2
+	data = data[(data.shape[0]/2)-half_matched_pupil_size:(data.shape[0]/2)+half_matched_pupil_size,
+	            (data.shape[0]/2)-half_matched_pupil_size:(data.shape[0]/2)+half_matched_pupil_size]   
+
       self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data), 2)) + " waves.")
-      
-      # pad the array to match pupil shape
-      #
-      # there's a caveat here, in that if the size of the pupil is odd, we will
-      # be unable to pad the WFE array evenly. This equates to roughly a fraction 
-      # of a percent misalignment in the worst case
-      #
-      pad_by = (match_pupil.gsize-data.shape[0])/2.
-      if data.shape[0] % 2 != 0:
-	pad_by = np.ceil(pad_by)				# adds 1 extra column and row of padding than required
-	data = np.pad(data, int(pad_by), mode='constant')
-	data = data[:-1,:-1]					# removes rightmost and bottommost padding
-      else:
-        data = np.pad(data, int(pad_by), mode='constant')
-   
-      # inverse fft shift to match pupil format
-      data = np.fft.ifftshift(data)
     
-      # convert to radians from waves, if requested
-      if in_radians:
-        data = np.abs(data)*2*np.pi
-      else:
-        data = np.abs(data)*2*np.pi   
-    
-      return data
+    # inverse fft shift to match pupil format
+    data = np.fft.fftshift(data)
+
+    # convert to radians from waves, if requested
+    if in_radians:
+      data = np.abs(data)*2*np.pi
+    else:
+      data = np.abs(data)*2*np.pi   
+
+    return data
 
 	

@@ -10,8 +10,8 @@
   
   NOTES
   
-  The [WFE_DATA.SLICE_IDX] field will be added with the negative-most field (depending on the sort flag) 
-  indexed at 0. 
+  The [WFE_DATA.SLICE_IDX] field will be added w/ the first slice index representing the top of the 
+  field.
   
   TO DO
   
@@ -38,8 +38,7 @@ if __name__== "__main__":
   parser.add_argument("-ws", help="wavelength start", default="650e-9", type=Decimal)
   parser.add_argument("-we", help="wavelength end", default="1000e-9", type=Decimal)
   parser.add_argument("-wi", help="wavelength interval", default="25e-9", type=Decimal)
-  parser.add_argument("-z", help="Zemax parameters file path", default="/home/barnsley/ELT-PCS/scripts/metadata/1/ZSIM_PARAMS.TXT", type=str)
-  parser.add_argument("-s", help="sort fields by x or y object angle", default='y', type=str)
+  parser.add_argument("-z", help="Zemax parameters file path", default="/local/home/barnsley/metadata/1/ZSIM_PARAMS.TXT", type=str)
   parser.add_argument("-f", help="make output file", action="store_true")
   parser.add_argument("-fn", help="output filename", action="store", default="config.json")
   args = parser.parse_args()
@@ -64,52 +63,26 @@ if __name__== "__main__":
   #
   params = read_zemax_simulation_parameters_file(logger, args.z)
   
+  # Check wavelength requested ranges are within those defined in Zemax parameter file
+  #
+  if not all([waves[0] >= params['WAVE_START']*Decimal('1e-6'), waves[-1] <= params['WAVE_END']*Decimal('1e-6')]):
+    logger.critical(' Requested wavelength range not within data\'s inherent wavelength range!')
+    exit(0)
+  
   # Search for WFE maps.
   #
-  res = sort_zemax_wfe_files(logger, datadir, params['WFE_FILE_PREFIX'], waves, params['NSLICES'])
+  maps_col = sort_zemax_wfe_files(logger, datadir, params['WFE_COL_FILE_PREFIX'], waves, params['NSLICES'])
+  maps_cam = sort_zemax_wfe_files(logger, datadir, params['WFE_CAM_FILE_PREFIX'], waves, params['NSLICES']) 
   
-  ## Establish which object angles to keep and filter result accordingly.
-  ##
-  counter_waves = Counter([r['WAVE'] for r in res])	# {WAVELENGTH1:n1, WAVELENGTH2:n2...}
-  counter_fields = Counter([r['FIELD'] for r in res])
-  
-  fields_unique = []
-  for f in counter_fields:
-    fields_unique.append(f)
-  if args.s == 'x':
-    sort_idx = 0
-  elif args.s == 'y':
-    sort_idx = 1
-  else:
-    logger.critical(" Field sorting criteria not recognised!")  
+  if len(maps_col) != len(maps_cam):
+    logger.critical(' Need same number of WFE maps for collimator and camera!')
     exit(0)
-  y_object_angles_to_keep = sorted([f[sort_idx] for f in fields_unique])[((len(fields_unique)-1)/2)-((params['NSLICES']-1)/2):((len(fields_unique)-1)/2)+((params['NSLICES']-1)/2)+1]
-  res = [r for r in res if r['FIELD'][sort_idx] in y_object_angles_to_keep]
   
-  ## Check to see that we have the correct number of WFE maps.
-  ## 
-  if len(res) != len(waves)*params['NSLICES']:
-    logger.critical(" Incorrect number of WFE maps found!")  
-    exit(0) 
-    
-  logger.debug(" WFE maps sorted, assigning fields to following slices...") 
-  
-  ## Annotate fields with corresponding slice number. See NOTES.
-  ##
-  field_to_slice_translation = {}
-  for s_idx, i in enumerate(sorted(set([r['FIELD'] for r in res]), key=lambda tup: tup[sort_idx])):
-    field_to_slice_translation[i] = s_idx
-    logger.debug(" Slice index " + str(s_idx) + " -> " + str(i))
-
-  for r_idx, r in enumerate(res):
-    res[r_idx]['SLICE_IDX'] = field_to_slice_translation[r['FIELD']] 
-
   # Generate output.
   #
   out_arr = [
     {"GENERAL": 
        {"SEARCH_DIRECTORY":datadir, 
-	"SORT_FLAG":args.s, 
 	"NSLICES": params['NSLICES'], 
 	"WAVELENGTH_START":float(args.ws), 
 	"WAVELENGTH_END":float(args.we), 
@@ -127,7 +100,8 @@ if __name__== "__main__":
 	"EPD": params['EPD']
        }
     }, 
-    {"WFE_DATA": res}
+    {"COL_WFE_DATA": maps_col},
+    {"CAM_WFE_DATA": maps_cam}
   ]
   print json.dumps(out_arr, indent=2)
     
