@@ -6,6 +6,7 @@ import math
 import numpy as np
 import numpy.fft
 import pyfits
+import pylab as plt
 try:
     from scipy import ndimage
 except ImportError:
@@ -34,9 +35,9 @@ def main (args):
     phase_file = args[2]
     output = args[3]
     # defaults
-    wavelength = None
-    oversample = 4
-    output_size = 512
+    wavelength = 1.
+    oversample = 1
+    output_size = 2048
     verbose = False
     if len (args) > 4:
         wavelength = float (args[4])
@@ -265,15 +266,16 @@ class MakePsf:
             wavelength = wavelengths[i]
             weight = weights[i]
             self.convertToOpd (wavelength)      # creates self.opd
-            opd = self.embedOpd()
+            opd = self.opd 			# RMB: opd = self.embedOpd()
             zf = numpy.fft.fft2 (opd)
             del opd
             # Compute the amplitude squared.
             # (psf is not really the point spread function yet)
-            psf = np.conjugate (zf)
+            #psf = np.conjugate (zf)		# RMB
             # psf will now be the point spread function, but still complex
-            np.multiply (psf, zf, psf)
-            del zf
+            #np.multiply (psf, zf, psf)		# RMB
+            #del zf				#RMB
+            psf = np.abs(zf)**2
             # normalize the PSF, and convert to single precision
             psf = psf.real / psf.size
             psf = psf.astype (np.float32)
@@ -322,11 +324,12 @@ class MakePsf:
         """Create optical path difference array
         The input wavelength and the phase image are in microns.
         """
-        if wavelength is None:
+        '''if wavelength is None:
             scale = 1.
         else:
-            scale = 2. * math.pi / wavelength
-        self.opd = self.pupil * np.exp (1.j * self.phase * scale)
+            scale = 2. * math.pi / wavelength'''
+        scale = 2. * math.pi					#RMB: This assumes phase map is in waves, like Zemax outputs
+        self.opd = self.pupil * np.exp (1.j * self.phase)	#RMB: self.opd = self.pupil * np.exp (1.j * self.phase * scale)
     def embedOpd (self):
         """Embed the OPD in a larger array.
         Copy into the middle of the full array.  It's OK to not be

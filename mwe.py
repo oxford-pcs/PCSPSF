@@ -28,20 +28,20 @@ from util import resample2d
 
 wsize = 2048		# wfe map resampled size
 
-gsize = 2048		# grid size
+oversample = 8		# grid size
 sampling = 256		# size of pupil
 shalfwidth = 2		# slice half width
-vhalfwidth = 10		# display half width
+vhalfwidth = 20		# display half width
 
-range_y = [(gsize/2)-vhalfwidth, (gsize/2)+vhalfwidth+1]
-range_x = [(gsize/2)-vhalfwidth, (gsize/2)+vhalfwidth+1]
+range_y = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
+range_x = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
 
-def run(wfe_map, max_wfe, plot):
-  
+def run(wfe_map, max_wfe, plot, hard):
+ 
   # Construct pupil
-  y, x = np.ogrid[-gsize/2:gsize/2, -gsize/2:gsize/2]
-  mask = x*x + y*y <= (sampling/2)*(sampling/2)
-  mag = np.zeros((gsize, gsize))
+  y, x = np.ogrid[-sampling/2:sampling/2, -sampling/2:sampling/2]
+  mask = x*x + y*y <= ((sampling-1)/2)*((sampling-1)/2)
+  mag = np.zeros((sampling, sampling))
   mag[mask] = 1
       
   phase = np.zeros(mag.shape)
@@ -50,6 +50,12 @@ def run(wfe_map, max_wfe, plot):
   im = mag * np.sin(phase)
       
   pupil = re + 1j * im
+  
+  if hard:
+    pyfits.writeto("pupil.fits", (np.abs(pupil)**2)/(np.max(np.abs(pupil)**2)))
+  
+  # oversize pupil
+  pupil = np.pad(pupil, (sampling*(oversample-1))/2, mode='constant')  
  
   # Move pupil to non-dc-centered
   pupil = np.fft.fftshift(pupil)
@@ -83,8 +89,20 @@ def run(wfe_map, max_wfe, plot):
 
   # Move to pupil space
   pupil_slice = np.fft.fft2(image_slice)
+   
+  #RMB:mag = 1.0
+  y, x = np.ogrid[-(sampling*8)/2:(sampling*8)/2, -(sampling*8)/2:(sampling*8)/2]
+  mask = x*x + y*y <= (((sampling*8))/2)*(((sampling*8))/2)
+  mag = np.zeros(((sampling*8), (sampling*8)))
+  mag[mask] = 1
   
-  mag = 1.0
+  mag =np.pad(mag,0,mode='constant')
+  
+  mag_w = np.copy(mag)
+  
+  mag[:,0:810] = 0
+  mag[:,1260:] = 0
+  
   z = zwfe(wfe_map, logger)
   z.parse()
   w = z.getData(20)
@@ -103,25 +121,51 @@ def run(wfe_map, max_wfe, plot):
   #
   # i) convolution
   if max_wfe == -1:
-    phase = w
+    phase = np.zeros(shape=mag.shape)
+    phase_w = w
   else:
-    phase = (w/np.max(w))*max_wfe
+    phase = np.zeros(shape=mag.shape)
+    phase_w = (w/np.max(w))*max_wfe
    
   re = mag * np.cos(phase)
   im = mag * np.sin(phase)
+  p = re + 1j * im   
+   
+  re = mag * np.cos(phase_w)
+  im = mag * np.sin(phase_w)
   w_p = re + 1j * im
-  
+ 
+
   # Move to dc-centered and convolve wfe in fourier space
   pupil_slice = np.fft.fftshift(pupil_slice)
-  pupil_slice_w = w_p*pupil_slice
+  pupil_slice_w = pupil_slice*w_p
+  pupil_slice = pupil_slice*p
+
+
+
+  '''profile = (np.abs(pupil_slice_w)**2)[1024]
+  profile_nonzero = np.where(np.logical_not(np.isclose(profile, 0)))[0]
+  x = profile.shape[0]
+  plt.plot(profile)
+  plt.plot(profile_nonzero, profile[profile_nonzero], 'kx')
+  plt.show()
+ 
+  xlo= np.argmin(profile_nonzero)
+  xhi= np.argmax(profile_nonzero)
   
+  print profile_nonzero[xlo], profile_nonzero[xhi]
+  twodprofile = np.zeros(shape=pupil_slice_w.shape)
+  
+  twodprofile[100,:] = 1  
+  plt.imshow(twodprofile)
+  plt.show()
+  exit(0)'''
+
+
+
   # Move back to non-dc-centered
   pupil_slice = np.fft.ifftshift(pupil_slice)
   pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
-  
-  pyfits.writeto("w.fits", np.angle(w_p))
-  exit(0)
-   
   
   # ii) phase addition
   # Move to dc-centered and add phase
@@ -142,10 +186,16 @@ def run(wfe_map, max_wfe, plot):
   # Move back to non-dc-centered
   pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
   '''
-
+  
+  if hard:
+    pyfits.writeto("spupil.fits", (np.abs(pupil_slice)**2)/(np.max(np.abs(pupil_slice)**2)))   
+    pyfits.writeto("spupil_w.fits", (np.abs(pupil_slice_w)**2)/(np.max(np.abs(pupil_slice_w)**2)))    
+    pyfits.writeto("nophase.fits", np.zeros(shape=pupil.shape))
+    pyfits.writeto("w.fits", np.angle(w_p))
+      
   # Make corresponding slices in image space and dc-center
   image_slice_processed = np.fft.ifft2(pupil_slice)
-  image_slice_processed = np.fft.fftshift(image_slice_processed)	
+  image_slice_processed = np.fft.fftshift(image_slice_processed)
 
   image_slice_processed_w = np.fft.ifft2(pupil_slice_w)
   image_slice_processed_w = np.fft.fftshift(image_slice_processed_w)
@@ -154,6 +204,9 @@ def run(wfe_map, max_wfe, plot):
   
   d = np.abs(image_slice_processed)**2			# slice w/ no wfe
   dp = np.abs(image_slice_processed_w)**2		# slice w/ wfe
+  
+  if hard:
+    pyfits.writeto("out.fits", dp)
   
   if plot:
     plt.subplot(441)
@@ -190,7 +243,7 @@ def run(wfe_map, max_wfe, plot):
     plt.imshow(np.angle(np.fft.fftshift(pupil_slice)), interpolation='none')
     plt.colorbar()
     
-    '''plt.subplot(447)
+    plt.subplot(447)
     plt.title("wfe map mag [7]")
     plt.imshow(np.abs(w_p), interpolation='none', vmax=1, vmin=0)
     plt.colorbar()
@@ -198,7 +251,7 @@ def run(wfe_map, max_wfe, plot):
     plt.subplot(448)
     plt.title("wfe map phase [8]")
     plt.imshow(np.angle(w_p), interpolation='none')
-    plt.colorbar()'''
+    plt.colorbar()
     
     plt.subplot(4,4,9)  
     plt.title("sliced pupil mag w/ wfe [9]")
@@ -257,7 +310,7 @@ if __name__== "__main__":
   ch.setFormatter(formatter)
   logger.addHandler(ch)
   
-  d, dp, w = run("/local/home/barnsley/metadata/1/WFE_CAM_0_4", -1, True)
+  d, dp, w = run("/local/home/barnsley/metadata/1/WFE_CAM_0_4", -1, True, False)
 
   '''DP = []  
   for i in np.arange(0,13,4):
