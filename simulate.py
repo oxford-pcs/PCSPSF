@@ -29,6 +29,7 @@ from decimal import *
 import pylab as plt
 import numpy as np
 import pyds9
+from PyQt4.QtGui import QApplication
 
 import plotter
 from pupil import circular
@@ -36,9 +37,13 @@ from camera import camera
 from products import cube, composite_image
 from util import sf, sort_zemax_wfe_files, read_psf_simulation_config_file, read_psf_simulation_parameters_file, is_power_of_two
 from zmx_parser import zwfe
+from editable import editable
+from ui import ui
 
 class sim():
   def __init__(self, logger, plotter, resampling_im, nwaves, pupil_physical_radius, cfg, p, args):
+    self.app			= QApplication(sys.argv)	# create qt4 app
+    
     self.logger 		= logger	
     self.plotter 		= plotter
     self.resampling_im		= resampling_im
@@ -125,6 +130,11 @@ class sim():
       new_pupil = s.toConjugatePupil()					# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
       self.plotter.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
 		      extent=new_pupil.getExtent(), xl='mm', yl='mm')
+      
+      if args.e:
+	pui = ui()				# create ui instance
+	e = editable(pui, new_pupil.data)	# create editable instance
+	e.go()					# connect events and exec app
       
       # Add phase error
       #
@@ -262,6 +272,7 @@ if __name__== "__main__":
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
   parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/1/config.json", type=str)
   parser.add_argument("-p", help="plot?", action="store_true")
+  parser.add_argument("-e", help="edit pupil?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
   parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
   parser.add_argument("-fv", help="view cube?", action="store_true")

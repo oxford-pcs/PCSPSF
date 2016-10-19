@@ -1,152 +1,126 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.gridspec as gridspec
+from PyQt4.QtCore import *
+from PyQt4.QtGui import *
 
-from util import resample2d
-
-class EditablePupil:
-    def __init__(self, data):
-      self.print_blurb()
-      
-      self.fig = plt.figure()
-      self.gs = gridspec.GridSpec(2, 3)
-      
-      self.data = data 									# data (complex)
-      self.cx = 0									# cursor x
-      self.cy = 0									# cursor y
-      
-      self.display_types = ['magnitude', 'phase', 'real', 'complex']			# list of available display modes
-      self.current_display = self.display_types[0]					# current display mode
+class ui():
+  def __init__(self):
+    self.main_frame = QDialog()
+    self.main_frame.resize(1200,800)
+       
+  def change_message_text(self, text, critical=False):
+    if critical:
+      style = 'color: red;'
+    else:
+      style = 'color: black;'
+    self.message_text.setStyleSheet(style)
+    self.message_text.setText(text)
     
-      self.ax1_data = np.abs(data)**2   						# initial data (magnitude) 
-      self.ax2_data = ([0, 0], [0, 0])							# initial profile 
-      self.ax3_data = ([0, 0], [0, 0])							# initial profile
-     
-      self.ax1 = self.imshow(self.ax1_data, "magnitude", gs_win=self.gs[:,:-1])		# data plot
-      self.lx = self.ax1.axhline(color='w')						# data xhair, no init
-      self.ly = self.ax1.axvline(color='w')						# data xhair, no init
-      self.ax2 = self.plot(*self.ax2_data, gs_win=self.gs[0,-1:])			# profile plot
-      self.ax3 = self.plot(*self.ax3_data, gs_win=self.gs[1,-1:])			# profile plot
-
-      self.next_is_inverse_fftshift = False
-      self.next_is_inverse_fft2 = False
-      
-      self.draw_data(oper="")
-        
-    def connect(self):
-      self.cidkeypress = plt.connect('key_press_event', self.on_press)
-      self.cidmousemove = plt.connect('motion_notify_event', self.mouse_move)
-             
-    def draw_data(self, oper):
-      self.populate_ax1_data()
-      self.imshow(self.ax1_data, label=oper, title=self.current_display, gs_win=self.gs[:,:-1])
-      plt.draw()
-      
-    def draw_profiles_and_xhair(self):
-      x = np.arange(*self.ax1.get_ylim())
-      y = self.ax1_data[:, self.cx]
-      self.ax2.cla()
-      self.ax2.plot(x, y)
-      self.ax2.set_xlim([np.min(x), np.max(x)])
-      
-      x = np.arange(*self.ax1.get_xlim())
-      y = self.ax1_data[self.cy, :]
-      self.ax3.cla()
-      self.ax3.plot(x, y)
-      self.ax3.set_xlim([np.min(x), np.max(x)])   
-      
-      self.lx.set_ydata(self.cy)
-      self.ly.set_xdata(self.cx)
-      plt.draw()
-	
-    def imshow(self, data, label="", title="", gs_win=None, cb=True):
-      if gs_win is None:
-	gs_win=self.gs[:,:]
-      ax = plt.subplot(gs_win)
-      ax.annotate(label, (0, 0), xycoords="axes points", fontsize=15, color="w")
-      plt.imshow(data)
-      plt.title(title)
-      if cb:
-        plt.colorbar()
-      plt.tight_layout()
-      plt.xlim([0,data.shape[1]])
-      plt.ylim([0,data.shape[1]])
-      return plt.gca()
+  def draw_ui(self, canvas):
+    self.canvas = canvas 
     
-    def mouse_move(self, event):
-      if not event.inaxes:
-	  return
-      self.cx, self.cy = event.xdata, event.ydata
-      self.draw_profiles_and_xhair()
-          	
-    def on_press(self, event):
-      oper = "unrecognised"
-      if event.key == "1":
-	if not self.next_is_inverse_fft2:
-	  oper = "fft2"
-	  self.data = np.fft.fft2(self.data)
-	else:
-	  oper = "ifft2"
-	  self.data = np.fft.ifft2(self.data)
-	self.next_is_inverse_fft2 = not self.next_is_inverse_fft2
-	self.next_is_inverse_fftshift = False     
-      elif event.key == "2":
-	if not self.next_is_inverse_fftshift:
-	  oper = "fftshift"
-	  self.data = np.fft.fftshift(self.data)
-	  self.next_is_inverse_fftshift = True
-	else:
-	  oper = "ifftshift"
-	  self.data = np.fft.ifftshift(self.data)
-      elif event.key == "pagedown":
-	oper = "switched display mode"
-	idx = self.display_types.index(self.current_display)-1
-        idx = len(self.display_types)-1 if idx < 0 else idx   	 	# wraparound
-	self.current_display = self.display_types[idx]
-      elif event.key == "pageup":
-	oper = "switched display mode"
-	idx = self.display_types.index(self.current_display)+1
-        idx = 0 if idx > len(self.display_types)-1 else idx   	 	# wraparound
-	self.current_display = self.display_types[idx]
-      self.draw_data(oper=oper)
-        
-    def plot(self, x, y, gs_win=None):
-      if gs_win is None:
-	gs_win=self.gs[:,:]
-      ax = plt.subplot(gs_win)
-      plt.plot(x, y)
-      return plt.gca()
-      
-    def populate_ax1_data(self): 
-      if self.current_display == 'magnitude':
-	self.ax1_data = np.abs(self.data)**2
-      elif self.current_display == 'phase':
-	self.ax1_data = np.angle(self.data)
-      elif self.current_display == 'real':
-	self.ax1_data = np.real(self.data)
-      elif self.current_display == 'complex':
-	self.ax1_data = np.imag(self.data)**2
-	
-    def print_blurb(self):
-      print 
-      print "List of commands:"
-      print
-      print "1:\tfft2/ifft2"
-      print "2:\tfftshift/ifftshift"
-      print "pgup:\tcycle display mode (up)"
-      print "pgdn:\tcycle display mode (down)"
-      print      
-      
-if __name__=="__main__":
-  
-  sampling=256
-  # Construct pupil
-  y, x = np.ogrid[-sampling/2:sampling/2, -sampling/2:sampling/2]
-  mask = x*x + y*y <= ((sampling-1)/2)*((sampling-1)/2)
-  data = np.zeros((sampling, sampling), dtype='complex')
-  data[mask] = 1 + 0j
-
-  dr = EditablePupil(data)
-  dr.connect()
-
-  plt.show()
+    self.canvas.setParent(self.main_frame)
+    self.canvas.setFocusPolicy(Qt.ClickFocus)
+    self.canvas.setFocus()
+    policy = QSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    self.canvas.setSizePolicy(policy)
+    
+    button_style	 = "background-color: transparent; border: 1px solid black;" 
+    alert_button_style	 = "background-color: red; border: 1px solid black;"  
+    self.button_inspect = QToolButton()
+    self.button_inspect.setStyleSheet(button_style)  
+    self.button_inspect.setText("inspect")
+    self.button_resize = QToolButton()
+    self.button_resize.setStyleSheet(button_style)  
+    self.button_resize.setText("resize")  
+    self.button_mask_re = QToolButton()
+    self.button_mask_re.setStyleSheet(button_style)  
+    self.button_mask_re.setText("mask (rectangle)")  
+    self.button_mask_ci = QToolButton()
+    self.button_mask_ci.setStyleSheet(button_style)  
+    self.button_mask_ci.setText("mask (circle)")  
+    self.button_mask_param1 = QLineEdit()
+    self.button_mask_param1.setStyleSheet(button_style)  
+    self.button_mask_param1.setText("0")  
+    self.button_mask_param1.setMaximumWidth(50)
+    self.button_mask_param2 = QLineEdit()
+    self.button_mask_param2.setStyleSheet(button_style)  
+    self.button_mask_param2.setText("0")  
+    self.button_mask_param2.setMaximumWidth(50) 
+    self.button_mask_param3 = QLineEdit()
+    self.button_mask_param3.setStyleSheet(button_style)  
+    self.button_mask_param3.setText("0")  
+    self.button_mask_param3.setMaximumWidth(50)    
+    self.button_mask_param4 = QLineEdit()
+    self.button_mask_param4.setStyleSheet(button_style)  
+    self.button_mask_param4.setText("0")  
+    self.button_mask_param4.setMaximumWidth(50)    
+    self.button_mask_value = QLineEdit()
+    self.button_mask_value.setStyleSheet(button_style)  
+    self.button_mask_value.setText("0")  
+    self.button_mask_value.setMaximumWidth(50)  
+    self.button_mask_apply = QToolButton()
+    self.button_mask_apply.setStyleSheet(button_style)  
+    self.button_mask_apply.setText("apply mask")  
+    self.button_fft = QToolButton()
+    self.button_fft.setStyleSheet(button_style)  
+    self.button_fft.setText("fft/ifft")  
+    self.button_fftshift = QToolButton()
+    self.button_fftshift.setStyleSheet(button_style)  
+    self.button_fftshift.setText("fftshift/ifftshift")       
+    self.button_nscaling = QToolButton()
+    self.button_nscaling.setStyleSheet(button_style)  
+    self.button_nscaling.setText("scaling+")      
+    self.button_pscaling = QToolButton()
+    self.button_pscaling.setStyleSheet(button_style)  
+    self.button_pscaling.setText("scaling-")    
+    self.button_pview = QToolButton()
+    self.button_pview.setStyleSheet(button_style)  
+    self.button_pview.setText("view-")   
+    self.button_nview = QToolButton()
+    self.button_nview.setStyleSheet(button_style)  
+    self.button_nview.setText("view+")  
+    self.button_resetview = QToolButton()
+    self.button_resetview.setStyleSheet(button_style)  
+    self.button_resetview.setText("reset view") 
+    self.button_resetdata = QToolButton()
+    self.button_resetdata.setStyleSheet(alert_button_style)  
+    self.button_resetdata.setText("RESET")  
+    
+    toolbar_style = "spacing: 5px"
+    self.message_text = QLabel()
+    self.message_text.setAlignment(Qt.AlignRight)
+    self.toolbar_actions = QToolBar(self.main_frame)
+    self.toolbar_actions.setStyleSheet(toolbar_style )
+    self.toolbar_mode = QToolBar(self.main_frame)
+    self.toolbar_mode.setStyleSheet(toolbar_style )    
+    self.toolbar_mode2 = QToolBar(self.main_frame)
+    self.toolbar_mode2.setStyleSheet(toolbar_style )
+    self.toolbar_controls = QToolBar(self.main_frame)
+    self.toolbar_controls.setStyleSheet(toolbar_style )
+    
+    self.toolbar_mode.addWidget(self.button_inspect)
+    self.toolbar_mode.addWidget(self.button_resize)
+    self.toolbar_mode2.addWidget(self.button_mask_re)
+    self.toolbar_mode2.addWidget(self.button_mask_ci)
+    self.toolbar_mode2.addWidget(self.button_mask_param1)   
+    self.toolbar_mode2.addWidget(self.button_mask_param2)  
+    self.toolbar_mode2.addWidget(self.button_mask_param3)   
+    self.toolbar_mode2.addWidget(self.button_mask_param4) 
+    self.toolbar_mode2.addWidget(self.button_mask_value)
+    self.toolbar_mode2.addWidget(self.button_mask_apply)    
+    self.toolbar_actions.addWidget(self.button_fft)
+    self.toolbar_actions.addWidget(self.button_fftshift) 
+    self.toolbar_controls.addWidget(self.button_nscaling)  
+    self.toolbar_controls.addWidget(self.button_pscaling) 
+    self.toolbar_controls.addWidget(self.button_nview) 
+    self.toolbar_controls.addWidget(self.button_pview)  
+    self.toolbar_controls.addWidget(self.button_resetview)
+    self.toolbar_controls.addWidget(self.button_resetdata)  
+    
+    self.layout = QGridLayout()
+    self.layout.addWidget(self.message_text, 1, 1, 1, 2)
+    self.layout.addWidget(self.canvas, 2, 1, 1, 1)
+    self.layout.addWidget(self.toolbar_mode, 3, 1, 1, 2)
+    self.layout.addWidget(self.toolbar_mode2, 4, 1, 1, 2)
+    self.layout.addWidget(self.toolbar_actions, 5, 1, 1, 2)
+    self.layout.addWidget(self.toolbar_controls, 6, 1, 1, 2) 
+    self.main_frame.setLayout(self.layout)  
