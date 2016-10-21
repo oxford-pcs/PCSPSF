@@ -22,21 +22,28 @@ import pyfits
 import sys
 import pylab as plt
 import pyfits
+import astropy.stats
+
+from  PyQt4.QtGui import QApplication
 
 from zmx_parser import zwfe
 from util import resample2d
+from ui import ui
+from editable import editable
 
-wsize = 2048		# wfe map resampled size
+oversample = 8			# grid size
+sampling = 256			# size of pupil
+shalfwidth = 2			# slice half width
+vhalfwidth = 20			# display half width
 
-oversample = 8		# grid size
-sampling = 256		# size of pupil
-shalfwidth = 2		# slice half width
-vhalfwidth = 20		# display half width
+wsize = sampling*oversample	# wfe map resampled size
 
 range_y = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
 range_x = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
 
 def run(wfe_map, max_wfe, plot, hard):
+  
+  app = QApplication(sys.argv)		# start app
  
   # Construct pupil
   y, x = np.ogrid[-sampling/2:sampling/2, -sampling/2:sampling/2]
@@ -56,7 +63,12 @@ def run(wfe_map, max_wfe, plot, hard):
   
   # oversize pupil
   pupil = np.pad(pupil, (sampling*(oversample-1))/2, mode='constant')  
- 
+  
+  # edit pupil
+  pui = ui()			# create ui instance
+  e = editable(pui, pupil)	# create editable instance
+  pupil = e.go()		# connect events and exec app
+  
   # Move pupil to non-dc-centered
   pupil = np.fft.fftshift(pupil)
  
@@ -89,19 +101,21 @@ def run(wfe_map, max_wfe, plot, hard):
 
   # Move to pupil space
   pupil_slice = np.fft.fft2(image_slice)
-   
-  #RMB:mag = 1.0
-  y, x = np.ogrid[-(sampling*8)/2:(sampling*8)/2, -(sampling*8)/2:(sampling*8)/2]
-  mask = x*x + y*y <= (((sampling*8))/2)*(((sampling*8))/2)
-  mag = np.zeros(((sampling*8), (sampling*8)))
+  
+  # Construct map of WFE magnitude (truncated to width of diffracted slice)
+  y, x = np.ogrid[-wsize/2:wsize/2, -wsize/2:wsize/2]
+  mask = x*x + y*y <= (((wsize))/2)*(((wsize))/2)
+  mag = np.zeros(((wsize), (wsize)))
   mag[mask] = 1
   
-  mag =np.pad(mag,0,mode='constant')
+  d = np.abs(np.fft.fftshift(pupil_slice))**2
+  d[np.isclose(d, 0, atol=1E-3)] = 0
+  d_m = np.median(d, axis=0)
+  lo = np.min(np.where(d_m>0))
+  hi = np.max(np.where(d_m>0))
   
-  mag_w = np.copy(mag)
-  
-  mag[:,0:810] = 0
-  mag[:,1260:] = 0
+  mag[:,0:lo] = 0
+  mag[:,hi:] = 0
   
   z = zwfe(wfe_map, logger)
   z.parse()
@@ -135,33 +149,10 @@ def run(wfe_map, max_wfe, plot, hard):
   im = mag * np.sin(phase_w)
   w_p = re + 1j * im
  
-
   # Move to dc-centered and convolve wfe in fourier space
   pupil_slice = np.fft.fftshift(pupil_slice)
   pupil_slice_w = pupil_slice*w_p
   pupil_slice = pupil_slice*p
-
-
-
-  '''profile = (np.abs(pupil_slice_w)**2)[1024]
-  profile_nonzero = np.where(np.logical_not(np.isclose(profile, 0)))[0]
-  x = profile.shape[0]
-  plt.plot(profile)
-  plt.plot(profile_nonzero, profile[profile_nonzero], 'kx')
-  plt.show()
- 
-  xlo= np.argmin(profile_nonzero)
-  xhi= np.argmax(profile_nonzero)
-  
-  print profile_nonzero[xlo], profile_nonzero[xhi]
-  twodprofile = np.zeros(shape=pupil_slice_w.shape)
-  
-  twodprofile[100,:] = 1  
-  plt.imshow(twodprofile)
-  plt.show()
-  exit(0)'''
-
-
 
   # Move back to non-dc-centered
   pupil_slice = np.fft.ifftshift(pupil_slice)
@@ -240,9 +231,10 @@ def run(wfe_map, max_wfe, plot, hard):
     
     plt.subplot(446)
     plt.title("pupil phase after slicing [6]")
-    plt.imshow(np.angle(np.fft.fftshift(pupil_slice)), interpolation='none')
-    plt.colorbar()
     
+    plt.imshow(phase, interpolation='none')
+    plt.colorbar()
+
     plt.subplot(447)
     plt.title("wfe map mag [7]")
     plt.imshow(np.abs(w_p), interpolation='none', vmax=1, vmin=0)
@@ -298,6 +290,11 @@ def run(wfe_map, max_wfe, plot, hard):
     
     plt.show()
     
+    phase = np.angle(np.fft.fftshift(pupil_slice))
+    power = np.abs(np.fft.fftshift(pupil_slice))**2
+    rms_intensity_weighted_phase = np.sqrt((np.sum(power*(phase**2)))/len(phase))/np.sqrt(np.sum(power)/len(phase))
+    print rms_intensity_weighted_phase/(2*np.pi)
+    
   return d, dp, np.abs(w)**2
     
 if __name__== "__main__":
@@ -311,35 +308,4 @@ if __name__== "__main__":
   logger.addHandler(ch)
   
   d, dp, w = run("/local/home/barnsley/metadata/1/WFE_CAM_0_4", -1, True, False)
-
-  '''DP = []  
-  for i in np.arange(0,13,4):
-    print i
-    d, dp = run("/local/home/barnsley/metadata/1/WFE_CAM_0_14", i, False)
-    
-    DP.append(dp[range_y[0]:range_y[1],range_x[0]:range_x[1]])
-  if not os.path.exists("out.fits"):
-    pyfits.writeto("out.fits", np.array(DP))
-  
-  for idx, i in enumerate(DP):
-    plt.plot(np.mean(i, axis=1), label=str(idx))
-  plt.legend()
-  plt.show()
-  exit(0)'''
-  
-  '''D = []
-  DP = []  
-  W = []
-  for i in np.arange(0,14,1):
-    print i
-    d, dp, w = run("/local/home/barnsley/metadata/1/WFE_CAM_0_" + str(i), -1, False)
-    
-    D.append(d[range_y[0]:range_y[1],range_x[0]:range_x[1]])
-    DP.append(dp[range_y[0]:range_y[1],range_x[0]:range_x[1]])
-    W.append(w)
-
-  pyfits.writeto("D.fits", np.array(D))
-  pyfits.writeto("DP.fits", np.array(DP))
-  pyfits.writeto("W.fits", np.array(W))'''
- 
   

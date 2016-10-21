@@ -42,7 +42,7 @@ class cube():
     self.pscale = sampling_post_rebin
     self.hfov	= hfov_post_rebin
   
-  def write(self, fname, cfg, p, args, pupil_physical_diameter):
+  def write(self, fname, cfg, p, args, xtra_header_keys):
     header = pyfits.Header()    
     header.append(('CRVAL1', -self.hfov))
     header.append(('CDELT1', self.pscale))
@@ -80,7 +80,8 @@ class cube():
     header.append(('DETPITCH', str(args.d), 'detector pixel pitch (m)'))
     header.append(('HASCOWFE', args.cow, 'has collimator WFE been added?'))
     header.append(('HASCAWFE', args.caw, 'has camera WFE been added?'))
-    header.append(('STAPUDIA', float(sf(pupil_physical_diameter, 4)), 'starting pupil physical diameter (mm)'))
+    for k, v in xtra_header_keys.iteritems():
+      header.append((k, v[0], v[1]))
     if os.path.exists(fname):
       os.remove(fname)
     self.logger.debug(" Writing output to " + str(fname) + ".")
@@ -115,3 +116,12 @@ class composite_image():
     if normalise:
       d = (d-np.min(d))/(np.max(d)-np.min(d))
     return d
+  
+  def getRMSPhase(self):
+    this_composite_pupil = np.fft.fft2(np.fft.fftshift(self.data))
+    phase = np.angle(np.fft.fftshift(this_composite_pupil))
+    power = np.abs(np.fft.fftshift(this_composite_pupil))**2
+    rms_intensity_weighted_phase = np.sqrt((np.sum(power*(phase**2)))/len(phase))/np.sqrt(np.sum(power)/len(phase))
+    print rms_intensity_weighted_phase/(2*np.pi)
+    return rms_intensity_weighted_phase/(2*np.pi)  
+   

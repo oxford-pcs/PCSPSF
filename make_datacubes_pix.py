@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 '''
-  gen_datacubes_for_strehl.py
+  make_datacubes_pix.py
   
   DESCRIPTION
   

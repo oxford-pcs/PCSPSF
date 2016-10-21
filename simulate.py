@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 '''
-  sim.py
+  simulate.py
   
   DESCRIPTION
   
@@ -29,7 +29,6 @@ from decimal import *
 import pylab as plt
 import numpy as np
 import pyds9
-from PyQt4.QtGui import QApplication
 
 import plotter
 from pupil import circular
@@ -42,8 +41,6 @@ from ui import ui
 
 class sim():
   def __init__(self, logger, plotter, resampling_im, nwaves, pupil_physical_radius, cfg, p, args):
-    self.app			= QApplication(sys.argv)	# create qt4 app
-    
     self.logger 		= logger	
     self.plotter 		= plotter
     self.resampling_im		= resampling_im
@@ -93,7 +90,7 @@ class sim():
     #  Instantiate camera (to convert to spatial scale), entrance pupil and image instance for this wavelength.
     #
     cam = camera(self.CAMERA_FWNO)
-    pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)  
+    pupil = circular(self.logger, cam, self.PUPIL_SAMPLING, self.PUPIL_GAMMA, self.PUPIL_RADIUS, verbose=verbose)
     this_composite_image = composite_image(self.logger, [self.PUPIL_SAMPLING*self.PUPIL_GAMMA, self.PUPIL_SAMPLING*self.PUPIL_GAMMA], wave, pupil)
     self.plotter.addImagePlot("pupil", pupil.getAmplitude(shift=True, normalise=True), extent=pupil.getExtent(), xl='mm', yl='mm')
       
@@ -130,12 +127,7 @@ class sim():
       new_pupil = s.toConjugatePupil()					# SLICING SPACE CHANGE. move from image to pupil space. zeroed DC.
       self.plotter.addImagePlot("-> take slice " + str(s.slice_number) + " -> ifft to pupil space", new_pupil.getAmplitude(shift=True, normalise=True), 
 		      extent=new_pupil.getExtent(), xl='mm', yl='mm')
-      
-      if args.e:
-	pui = ui()				# create ui instance
-	e = editable(pui, new_pupil.data)	# create editable instance
-	e.go()					# connect events and exec app
-      
+       
       # Add phase error
       #
       # COLLIMATOR
@@ -156,7 +148,7 @@ class sim():
 	
 	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
-	new_pupil.addToPhase(wfe_d)
+	new_pupil.convolve(wfe_d)
 	plt_title_prefix = "added phase error "
 	self.logger.debug(" Added collimator phase error for slice " + str(s.slice_number) + ".")
       else:
@@ -180,7 +172,7 @@ class sim():
 	
 	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
-	new_pupil.addToPhase(wfe_d)
+	new_pupil.convolve(wfe_d)
 	plt_title_prefix = "added phase error "
 	self.logger.debug(" Added camera phase error for slice " + str(s.slice_number) + ".")
       else:
@@ -193,7 +185,7 @@ class sim():
       d, hfov = im.getAmplitudeScaledByAiryDiameters(3, normalise=True)
       self.plotter.addImagePlot(plt_title_prefix + "-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
       this_composite_image.addSlice(im)
-      
+        
     return this_composite_image
   
 def run(args, logger, plotter):
@@ -201,7 +193,8 @@ def run(args, logger, plotter):
   #
   cfg = read_psf_simulation_config_file(logger, args.c)
   p = read_psf_simulation_parameters_file(logger, args.s)
-
+  xtra_header_keys = {}		# this is mostly used to record RMS phase error for each wavelength
+  
   st = time.time()
   logger.debug(" Beginning simulation")
   
@@ -213,6 +206,7 @@ def run(args, logger, plotter):
   focal_ratio = (2*float(args.d))/cfg['PUPIL_REFERENCE_WAVELENGTH']
   pupil_physical_diameter = p['GENERAL']['CAMERA_EFFL']/focal_ratio
   pupil_physical_radius = pupil_physical_diameter/2
+  xtra_header_keys['STAPUDIA'] = (pupil_physical_diameter, "starting pupil physical diameter (mm)")
 
   # Find parameters with which we will rescale the image.
   #
@@ -250,13 +244,14 @@ def run(args, logger, plotter):
     if idx>0:
       logger.debug(" Last wavelength iteration took " + str(int(this_duration)) + "s, expected time to completion is " + str(int(((len(waves)-(idx+1))*this_duration))) + "s.")
     
+    xtra_header_keys['RMSP' + str(idx)] = (composite_image.getRMSPhase(), 'RMS Phase Error for wavelength ' + str(idx) + ' (wv)')
     s.datacube.addImage(composite_image)	# this call adds the returned image instance to the datacube
   
   # Make and view output.
   #
   if args.f:
     s.datacube.resampleAndCrop(cfg['RESAMPLING_FACTOR'], cfg['HFOV'])
-    s.datacube.write(args.fn, cfg, p, args, pupil_physical_diameter)
+    s.datacube.write(args.fn, cfg, p, args, xtra_header_keys)
     if args.fv:
       d = pyds9.DS9()
       d.set("file " + args.fn)
@@ -272,7 +267,6 @@ if __name__== "__main__":
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
   parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/1/config.json", type=str)
   parser.add_argument("-p", help="plot?", action="store_true")
-  parser.add_argument("-e", help="edit pupil?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
   parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
   parser.add_argument("-fv", help="view cube?", action="store_true")
