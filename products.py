@@ -122,6 +122,5 @@ class composite_image():
     phase = np.angle(np.fft.fftshift(this_composite_pupil))
     power = np.abs(np.fft.fftshift(this_composite_pupil))**2
     rms_intensity_weighted_phase = np.sqrt((np.sum(power*(phase**2)))/len(phase))/np.sqrt(np.sum(power)/len(phase))
-    print rms_intensity_weighted_phase/(2*np.pi)
     return rms_intensity_weighted_phase/(2*np.pi)  
    

@@ -47,8 +47,8 @@ class pupil(object):
   def convolve(self, p, frac_of_max_intensity=1E-3):
     '''
       Convolution in fourier space, equivalent to addToPhase() but takes 
-      into account magnitude of diffracted slice, setting the magnitude 
-      of a continuous positive-valued region along the x axis to 1. The 
+      into account magnitude of diffracted slice (setting the magnitude 
+      of a continuous positive-valued region along the x axis to 1). The 
       region start/end is defined by setting finding the coordinate 
       where a fraction of the peak intensity drops below 
       [frac_of_max_intensity].
@@ -56,8 +56,8 @@ class pupil(object):
     mag = self.getAmplitude()
        
     mag_median_profile_x = np.median(mag, axis=0)
-    p = np.max(mag_median_profile_x)
-    lim = p*frac_of_max_intensity
+    pr = np.max(mag_median_profile_x)
+    lim = pr*frac_of_max_intensity
     
     lo = np.min(np.where(mag_median_profile_x<lim))
     hi = np.max(np.where(mag_median_profile_x<lim))
