@@ -24,13 +24,14 @@ import pylab as plt
 import pyfits
 import astropy.stats
 
-from  PyQt4.QtGui import QApplication
+from PyQt4.QtGui import QApplication
 
 from zmx_parser import zwfe
 from util import resample2d
 from ui import ui
 from editable import editable
 
+wfe_addition_method = 'CONV'
 oversample = 8			# grid size
 sampling = 256			# size of pupil
 shalfwidth = 2			# slice half width
@@ -41,7 +42,7 @@ wsize = sampling*oversample	# wfe map resampled size
 range_y = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
 range_x = [((oversample*sampling)/2)-vhalfwidth, ((oversample*sampling)/2)+vhalfwidth+1]
 
-def run(wfe_map, max_wfe, plot, hard):
+def run(wfe_map, plot, hard):
   
   app = QApplication(sys.argv)		# start app
  
@@ -50,19 +51,20 @@ def run(wfe_map, max_wfe, plot, hard):
   mask = x*x + y*y <= ((sampling-1)/2)*((sampling-1)/2)
   mag = np.zeros((sampling, sampling))
   mag[mask] = 1
+  
+  # oversize
+  mag = np.pad(mag, (sampling*(oversample-1))/2, mode='constant') 
       
   phase = np.zeros(mag.shape)
       
   re = mag * np.cos(phase)
   im = mag * np.sin(phase)
-      
+  
+  # create complex pupil    
   pupil = re + 1j * im
   
   if hard:
-    pyfits.writeto("pupil.fits", (np.abs(pupil)**2)/(np.max(np.abs(pupil)**2)))
-  
-  # oversize pupil
-  pupil = np.pad(pupil, (sampling*(oversample-1))/2, mode='constant')  
+    pyfits.writeto("pupil.fits", (np.abs(pupil)**2)/(np.max(np.abs(pupil)**2))) 
   
   # edit pupil
   pui = ui()			# create ui instance
@@ -103,20 +105,17 @@ def run(wfe_map, max_wfe, plot, hard):
   pupil_slice = np.fft.fft2(image_slice)
   
   # Construct map of WFE magnitude (truncated to width of diffracted slice)
-  y, x = np.ogrid[-wsize/2:wsize/2, -wsize/2:wsize/2]
-  mask = x*x + y*y <= (((wsize))/2)*(((wsize))/2)
-  mag = np.zeros(((wsize), (wsize)))
-  mag[mask] = 1
-  
-  d = np.abs(np.fft.fftshift(pupil_slice))**2
-  d[np.isclose(d, 0, atol=1E-3)] = 0
-  d_m = np.median(d, axis=0)
-  lo = np.min(np.where(d_m>0))
-  hi = np.max(np.where(d_m>0))
-  
-  mag[:,0:lo] = 0
-  mag[:,hi:] = 0
-  
+  mag_median_profile_x = np.median(pupil_slice, axis=0)
+  pr = np.max(mag_median_profile_x)
+  lim = pr*1E-3
+    
+  lo = np.min(np.where(mag_median_profile_x<lim))
+  hi = np.max(np.where(mag_median_profile_x<lim))
+    
+  mag_w = np.zeros(shape=mag.shape)
+  mag_w[:, 0:lo] = 1
+  mag_w[:, hi:] = 1
+    
   z = zwfe(wfe_map, logger)
   z.parse()
   w = z.getData(20)
@@ -133,50 +132,44 @@ def run(wfe_map, max_wfe, plot, hard):
   # multiplication in fourier space) or by adding the phase (essentially
   # treating the error as a phase-shifting plate.
   #
-  # i) convolution
-  if max_wfe == -1:
+  if wfe_addition_method == 'CONV':
     phase = np.zeros(shape=mag.shape)
     phase_w = w
-  else:
-    phase = np.zeros(shape=mag.shape)
-    phase_w = (w/np.max(w))*max_wfe
-   
-  re = mag * np.cos(phase)
-  im = mag * np.sin(phase)
-  p = re + 1j * im   
-   
-  re = mag * np.cos(phase_w)
-  im = mag * np.sin(phase_w)
-  w_p = re + 1j * im
- 
-  # Move to dc-centered and convolve wfe in fourier space
-  pupil_slice = np.fft.fftshift(pupil_slice)
-  pupil_slice_w = pupil_slice*w_p
-  pupil_slice = pupil_slice*p
+    
+    re = mag * np.cos(phase)
+    im = mag * np.sin(phase)
+    p = re + 1j * im   
+    
+    re = mag_w * np.cos(phase_w)
+    im = mag_w * np.sin(phase_w)
+    w_p = re + 1j * im
+  
+    # Move to dc-centered and convolve wfe in fourier space
+    pupil_slice = np.fft.fftshift(pupil_slice)
+    pupil_slice_w = pupil_slice*w_p
+    pupil_slice = pupil_slice*p
 
-  # Move back to non-dc-centered
-  pupil_slice = np.fft.ifftshift(pupil_slice)
-  pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
-  
-  # ii) phase addition
-  # Move to dc-centered and add phase
-  '''
-  pupil_slice_w = np.fft.fftshift(pupil_slice)  
+    # Move back to non-dc-centered
+    pupil_slice = np.fft.ifftshift(pupil_slice)
+    pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
+    
+  elif wfe_addition_method == 'ADD': 
+    # Move to dc-centered and add phase
+    pupil_slice_w = np.fft.fftshift(pupil_slice)  
 
-  mag = np.abs(pupil_slice_w)
-  phase = np.angle(pupil_slice_w)
-  
-  re = mag * np.cos(w+phase)
-  im = mag * np.sin(w+phase)
-  
-  re = mag * np.cos(np.zeros(shape=mag.shape))
-  im = mag * np.sin(np.zeros(shape=mag.shape))
-  
-  pupil_slice_w = re + 1j * im  
-  
-  # Move back to non-dc-centered
-  pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
-  '''
+    mag = np.abs(pupil_slice_w)
+    phase = np.angle(pupil_slice_w)
+    
+    re = mag * np.cos(w+phase)
+    im = mag * np.sin(w+phase)
+    
+    re = mag * np.cos(np.zeros(shape=mag.shape))
+    im = mag * np.sin(np.zeros(shape=mag.shape))
+    
+    pupil_slice_w = re + 1j * im  
+    
+    # Move back to non-dc-centered
+    pupil_slice_w = np.fft.ifftshift(pupil_slice_w)
   
   if hard:
     pyfits.writeto("spupil.fits", (np.abs(pupil_slice)**2)/(np.max(np.abs(pupil_slice)**2)))   
@@ -307,5 +300,5 @@ if __name__== "__main__":
   ch.setFormatter(formatter)
   logger.addHandler(ch)
   
-  d, dp, w = run("/local/home/barnsley/metadata/1/WFE_CAM_0_4", -1, True, False)
+  d, dp, w = run("etc/WFE_CAM_0_4", True, False)
   

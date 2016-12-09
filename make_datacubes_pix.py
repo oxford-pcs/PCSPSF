@@ -32,7 +32,7 @@ from simulate import run
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
-  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/1/config.json", type=str)
+  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/2/config.json", type=str)
   parser.add_argument("-v", help="verbose", action="store_true")
   parser.add_argument("-p", help="plot?", action="store_true")
   parser.add_argument("-fv", help="view cubes?", action="store_true")

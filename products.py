@@ -21,6 +21,9 @@ class cube():
     self.cube_idx		= 0
   
   def addImage(self, image):
+    '''
+      Add a composite_image object to this datacube.
+    '''
     if self.data.shape[1:3] != image.data.shape:
       self.cube.logger.critical(" Data cannot be added to image - shapes must be identical!")
       exit(0)
@@ -28,6 +31,9 @@ class cube():
     self.cube_idx += 1
     
   def resampleAndCrop(self, resampling_factor, hfov):
+    '''
+      Resample datacube to a given "/px.
+    '''
     sampling_pre_rebin 		= self.pscale					# current "/px
     hfov_pre_rebin		= self.hfov
     sampling_post_rebin 	= self.resolution_element/resampling_factor	# desired "/px
@@ -43,6 +49,9 @@ class cube():
     self.hfov	= hfov_post_rebin
   
   def write(self, fname, cfg, p, args, xtra_header_keys):
+    '''
+      Write the datacube out.
+    '''
     header = pyfits.Header()    
     header.append(('CRVAL1', -self.hfov))
     header.append(('CDELT1', self.pscale))
@@ -101,12 +110,23 @@ class composite_image():
     self.data 			= np.zeros(dim)
     
   def addSlice(self, im):
+    '''
+      Add data from a slice.
+    '''
     self.data[im.pupil.region[0]:im.pupil.region[1]] += im.getAmplitude()[im.pupil.region[0]:im.pupil.region[1]]		# if this is a slice, only adds data within slice
     
   def getExtent(self):
+    ''' 
+      Returns an extent with real units for image plots.
+    '''
     return (-self.detector_FOV/2,self.detector_FOV/2,-self.detector_FOV/2,self.detector_FOV/2)
   
   def getAmplitude(self, normalise=False, scale="linear"):
+    '''
+      Get the amplitude of [self.data], or convert to a variety of formats.
+      
+      Returns a data array of the same shape as [self.data].
+    '''
     d = copy.deepcopy(np.abs(self.data))
     if scale != "linear":
       if scale == "log":
@@ -118,6 +138,9 @@ class composite_image():
     return d
   
   def getRMSPhase(self):
+    '''
+      Returns the RMS phase (waves) weighted by magnitude.
+    '''
     this_composite_pupil = np.fft.fft2(np.fft.fftshift(self.data))
     phase = np.angle(np.fft.fftshift(this_composite_pupil))
     power = np.abs(np.fft.fftshift(this_composite_pupil))**2

@@ -8,6 +8,10 @@ import pylab as plt
 from util import sf, resample2d
 
 class pupil(object):
+  '''
+    This class provides abstraction for all the fields and methods 
+    that are non-specific to the geometry of a given pupil.
+  '''
   def __init__(self, logger, camera, sampling, gamma, verbose, data=None):
     self.logger		 	= logger
     self.camera			= camera
@@ -18,15 +22,18 @@ class pupil(object):
     
     self.image_slicing_region	= None
     
-    # set up a new data grid if data field is empty
-    if data is None:
-      self.gsize	= self.sampling*self.gamma				# size of padded grid in pixels
-      self._setup()
+    if data is None:								# if there's no data..
+      self.gsize	= self.sampling*self.gamma				# .. set size of padded grid in pixels
+      self._setup()								# .. set up a new data grid
     else:
       self.gsize	= data.shape[0]
       self.data		= data
     
   def _setup(self):
+    '''
+      Instantiate [self.data] with zero phase and unity magnitude
+      across the array.
+    '''
     mag = np.ones((self.gsize,self.gsize))
     phase = np.zeros(mag.shape)
     
@@ -36,6 +43,10 @@ class pupil(object):
     self.data = re + 1j * im
   
   def addToPhase(self, p):
+    '''
+      Add a phase difference to the phase of [self.data], and reform
+      as a complex number.
+    '''
     mag = self.getAmplitude()
     phase = self.getPhase()+p
 
@@ -46,23 +57,36 @@ class pupil(object):
     
   def convolve(self, p, frac_of_max_intensity=1E-3):
     '''
-      Convolution in fourier space, equivalent to addToPhase() but takes 
-      into account magnitude of diffracted slice (setting the magnitude 
-      of a continuous positive-valued region along the x axis to 1). The 
-      region start/end is defined by setting finding the coordinate 
-      where a fraction of the peak intensity drops below 
-      [frac_of_max_intensity].
+      Convolution in fourier space, equivalent to addToPhase() but also 
+      takes into account the magnitude of [self.data] by setting the magnitude 
+      of a continuous positive-valued region along the x axis to 1. The 
+      region start/end is defined by finding the coordinate where a fraction 
+      of the peak intensity drops below [frac_of_max_intensity].
+      
+      The logic here is sensitive to both the nature of the pupil, and whether 
+      the components of the image are dc-centered. The following assumes a 
+      non-dc centered diffracted slice that forms an IMAGE like:
+      
+      ^ y
+      |xx   xx
+      |xx   xx
+      |xx   xx
+      |xx   xx
+      |xx___xx 
+               >x
+               
+      i.e. where diffraction has occurred across (y) the slice. 
     '''
-    mag = self.getAmplitude()
+    mag = self.getAmplitude()					# get the current amplitude
        
-    mag_median_profile_x = np.median(mag, axis=0)
-    pr = np.max(mag_median_profile_x)
-    lim = pr*frac_of_max_intensity
+    mag_median_profile_x = np.median(mag, axis=0)		# take the median along x
+    pr = np.max(mag_median_profile_x)				# find the maximum value of this median profile
+    lim = pr*frac_of_max_intensity				# calculate the threshold
     
-    lo = np.min(np.where(mag_median_profile_x<lim))
-    hi = np.max(np.where(mag_median_profile_x<lim))
+    lo = np.min(np.where(mag_median_profile_x<lim))		# lowest x
+    hi = np.max(np.where(mag_median_profile_x<lim))		# highest x
     
-    mag_w = np.zeros(shape=mag.shape)
+    mag_w = np.zeros(shape=mag.shape)				
     mag_w[:, 0:lo] = 1
     mag_w[:, hi:] = 1
     
@@ -74,6 +98,11 @@ class pupil(object):
     self.data = self.data*wfe
 
   def getAmplitude(self, power=False, shift=False, scale="linear", normalise=False):
+    '''
+      Get the amplitude of [self.data], or convert to a variety of formats.
+      
+      Returns a data array of the same shape as [self.data].
+    '''
     d = deepcopy(np.abs(self.data))
     if power:
       d = d**2
@@ -89,11 +118,19 @@ class pupil(object):
     return d
   
   def getPhase(self, shift=False):
+    '''
+      Get the phase of [self.data].
+      
+      Returns a data array of the same shape as [self.data].
+    '''
     if shift:
       return np.angle(np.fft.fftshift(self.data))
     return np.angle(self.data)
   
   def getRealComponent(self, shift=False, normalise=False):
+    '''
+      Returns the real component of [self.data].
+    '''
     d = deepcopy(self.data)
     if shift:
       d = np.fft.fftshift(d)
@@ -103,6 +140,9 @@ class pupil(object):
     return re
     
   def getImagComponent(self, shift=False, normalise=False):
+    '''
+      Returns the imaginary component of [self.data].
+    '''
     d = deepcopy(self.data)
     if shift:
       d = np.fft.fftshift(d)
@@ -127,9 +167,17 @@ class pupil(object):
     return self.conjugateImage(self, i_data, wave, verbose)
   
   class conjugateImage():
+    '''
+      Dummy class that will be overriden by inherited classes.
+    '''
     pass
   
 class circular(pupil): 
+  '''
+    Circular pupil class.
+    
+    The sliced version of this class is circular_slice.
+  '''
   def __init__(self, logger, camera, sampling, gamma, rad, verbose=False, data=None):
     super(circular, self).__init__(logger, camera, sampling, gamma, verbose, data)
     self.rad 					= rad
@@ -150,6 +198,10 @@ class circular(pupil):
     self.number					= -1
    
   def _setup(self):
+    '''
+      Instantiate [self.data] with zero phase and unity magnitude for a circle 
+      of radius [rad] across the array.
+    '''
     y, x = np.ogrid[-self.gsize/2:self.gsize/2, -self.gsize/2:self.gsize/2]
     mask = x*x + y*y <= (self.sampling/2)*(self.sampling/2)
     mag = np.zeros((self.gsize, self.gsize))
@@ -164,6 +216,9 @@ class circular(pupil):
     self.data = np.fft.fftshift(self.data)   
     
   class conjugateImage(object):
+    '''
+      The corresponding image class for a circular pupil.
+    '''    
     def __init__(self, pupil, i_data, wave, verbose):
       self.pupil = pupil
       self.wave	= float(wave)
@@ -187,9 +242,17 @@ class circular(pupil):
       self.slice_number = None
        
     def getDetectorHFOV(self):
+      '''
+        Returns the detector half field of view.
+      '''
       return self.detector_FOV/2.
 
     def getAmplitude(self, power=False, shift=False, normalise=False, scale="linear"):
+      '''
+        Get the amplitude of [self.data], or convert to a variety of formats.
+      
+        Returns a data array of the same shape as [self.data].
+     '''
       d = deepcopy(np.abs(self.data))
       if power:
         d = d**2
@@ -205,11 +268,19 @@ class circular(pupil):
       return d
     
     def getPhase(self, shift=False):
+      '''
+       Get the phase of [self.data].
+      
+        Returns a data array of the same shape as [self.data].
+      '''
       if shift:
         return np.angle(np.fft.fftshift(self.data))
       return np.angle(self.data)
     
     def getRealComponent(self, shift=False, normalise=False):
+      '''
+        Returns the real component of [self.data].
+      '''
       d = deepcopy(self.data)
       if shift:
 	d = np.fft.fftshift(d)
@@ -219,6 +290,9 @@ class circular(pupil):
       return re
       
     def getImagComponent(self, shift=False, normalise=False):
+      '''
+        Returns the imaginary component of [self.data].
+      '''
       d = deepcopy(self.data)
       if shift:
 	d = np.fft.fftshift(d)
@@ -229,7 +303,7 @@ class circular(pupil):
       
     def getAmplitudeScaledByAiryDiameters(self, n_airy_diameters, power=False, shift=False, normalise=False, scale="linear", verbose=False):
       '''
-        Constructs a scaled image with only [n_airy_diameters] shown. Useful for plotting.
+        Returns a scaled image with only [n_airy_diameters] shown. Useful for plotting.
         
         Returns data and scaled HFOV of the detector.
       '''
@@ -313,7 +387,7 @@ class circular(pupil):
 	self.pupil.pupil_plate_scale	= self.pupil.physical_gsize/self.pupil.gsize
         
         # change some image parameters now we've rescaled
-        self.pscale 		= self.resolution_element/self.pupil.gamma
+        self.pscale 		= new_pscale
         self.detector_FOV 	= self.pscale*self.pupil.gsize	
         
         # recalculate camera properties

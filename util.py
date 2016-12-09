@@ -43,7 +43,7 @@ def read_psf_simulation_config_file(logger, path):
 
 def read_psf_simulation_parameters_file(logger, path):
   '''
-    Parses simulation parameters to various dictionaries.
+    Parses simulation parameters into various dictionaries.
   '''
   with open(path, 'r') as fp:
     p = json.load(fp)
@@ -54,6 +54,9 @@ def read_psf_simulation_parameters_file(logger, path):
   return res
 
 def read_zemax_simulation_parameters_file(logger, path):
+  '''
+    Parses zemax simulation parameters into a dictionary.
+  '''
   content = _decode("UTF-16-LE", path)
   res = {}
   for line in content:
@@ -107,7 +110,8 @@ def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, gauss_sig=
     increment [i_i] to a new 2D grid with extents defined by [o_s] and [o_e] with 
     increment [o_i].
     
-    returns: a 2D resampled array.
+    Returns a 2D resampled array, with options for smoothing (gaussian and median) and 
+    clipping.
   '''
   
   # calculate bivariate spline, G,  using input grid and data

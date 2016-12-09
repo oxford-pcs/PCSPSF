@@ -6,22 +6,31 @@ import pylab as plt
 
 from util import sf, resample2d
 
+def decode(fname, encoding):
+  '''
+    Decode file with given encoding.
+  '''
+  fp = codecs.open(fname, "r", encoding)
+  content = fp.readlines()
+  fp.close()
+  return content
+
 class zfftpsf():
+  '''
+    Read a Zemax FFT PSF file.
+  '''
   def __init__(self, fname, logger, verbose=True):
     self.fname = fname
     self.logger = logger
     self.header = {"WAVE": None, "FIELD": None, "WAVE_EXP": None, "DATA_SPACING": None, "DATA_SPACING_EXP": None, "DATA_AREA": None, "DATA_AREA_EXP": None, "PGRID_SIZE": None, "IGRID_SIZE": None, "CENTRE": None}
     self.data = None 
     self.verbose = verbose
-    
-  def _decode(self, encoding):
-    fp = codecs.open(self.fname, "r", encoding)
-    content = fp.readlines()
-    fp.close()
-    return content
-  
+
   def parseFileHeader(self):
-    content = self._decode("UTF-16-LE")
+    '''
+      Read header contents into dict.
+    '''
+    content = decode(self.fname, "UTF-16-LE")
     for idx, line in enumerate(content):
       if idx == 8:
 	self.header['WAVE'] = float(line.split()[0].strip())
@@ -65,7 +74,10 @@ class zfftpsf():
     return False  
   
   def _parseFileData(self, sampling):
-    content = self._decode("UTF-16-LE")
+    '''
+      Read file data
+    '''
+    content = decode(self.fname, "UTF-16-LE")
     data = []
     for idx, line in enumerate(content):
       try:
@@ -79,6 +91,9 @@ class zfftpsf():
     return True 
   
   def parse(self, debug=False):
+    ''' 
+      Parses a file.
+    '''
     if self.parseFileHeader():
       if debug:
         self.logger.debug(self.header)
@@ -101,20 +116,20 @@ class zfftpsf():
     return np.array(self.data)
     
 class zsystemdata():
+  '''
+    Read a Zemax system data file.
+  '''
   def __init__(self, fname, logger, verbose=True):
     self.fname = fname
     self.logger = logger
     self.keywords = {"WFNO": None, "EPD": None}
     self.verbose = verbose
-    
-  def _decode(self, encoding):
-    fp = codecs.open(self.fname, "r", encoding)
-    content = fp.readlines()
-    fp.close()
-    return content
   
   def _parseFileForKeywords(self):
-    content = self._decode("UTF-16-LE")
+    '''
+      Read header contents into dict.
+    '''
+    content = decode(self.fname, "UTF-16-LE")
     for idx, line in enumerate(content):
       if len(line.split(':')) >= 2:
 	if "Working F/#" in line.split(':')[0]:
@@ -126,6 +141,9 @@ class zsystemdata():
     return False  
   
   def parse(self, debug=False):
+    ''' 
+      Parses a file.
+    '''
     if self._parseFileForKeywords():
       if debug:
         self.logger.debug(self.keywords)
@@ -137,6 +155,9 @@ class zsystemdata():
     return self.keywords
 	
 class zwfe():
+  '''
+    Read a Zemax wavefront error map.
+  '''
   def __init__(self, fname, logger, verbose=True):
     self.fname = fname
     self.logger = logger
@@ -144,14 +165,11 @@ class zwfe():
     self.data = None 
     self.verbose = verbose
     
-  def _decode(self, encoding):
-    fp = codecs.open(self.fname, "r", encoding)
-    content = fp.readlines()
-    fp.close()
-    return content
-  
   def parseFileHeader(self):
-    content = self._decode("UTF-16-LE")
+    '''
+      Read header contents into dict.
+    '''
+    content = decode(self.fname, "UTF-16-LE")
     try:
       for idx, line in enumerate(content):
 	if idx == 8:
@@ -182,7 +200,10 @@ class zwfe():
       return False
   
   def _parseFileData(self, sampling):
-    content = self._decode("UTF-16-LE")
+    '''
+      Read file data.
+    '''
+    content = decode(self.fname, "UTF-16-LE")
     data = []
     for idx, line in enumerate(content):
       try:
@@ -196,6 +217,9 @@ class zwfe():
     return True 
   
   def parse(self, debug=False):
+    '''
+      Parses a file.
+    '''
     if self.parseFileHeader():
       if debug:
         self.logger.debug(self.header)
@@ -214,17 +238,25 @@ class zwfe():
   def getHeader(self):
     return self.header 
   
-  def getData(self, EPD, match_pupil=None, in_radians=True):
-
+  def getData(self, match=None, wfe_pd=None, in_radians=True):
+    '''
+      Returns a version of [self.data] matched to the scale defined by [match].
+      
+      [match] should be a tuple corresponding to (a pupil instance, wfe pupil diameter). 
+    '''
+    
     # Return WFE data, resampling and padding as appropriate.
     #
+    
     data = self.data
-    if match_pupil is not None:
-      wfe_pupil_diameter 	= EPD									# mm
+    if match is not None and wfe_pd is not None:
+      match_pupil 		= match
+      match_WFE_pupil_diameter 	= wfe_pd
+      wfe_pupil_diameter 	= match_WFE_pupil_diameter						# mm
       wfe_plate_scale 		= wfe_pupil_diameter/data.shape[0]					# mm/px	
       self.logger.debug(" WFE map has a plate scale of " + str(sf(wfe_plate_scale, 2)) + "mm/px")
       
-      # resample and crop to same plate scale as pupil
+      # resample and crop to same plate scale as match_pupil
       if wfe_plate_scale*data.shape[0] < match_pupil.pupil_plate_scale*match_pupil.sampling:
 	self.logger.critical(" WFE map extent is smaller than matched pupil extent, this would lead to extrapolation!")
 	exit(0)

@@ -107,6 +107,14 @@ class sim():
     self.plotter.addImagePlot("rescaled pupil", pupil.getAmplitude(shift=True, normalise=True), extent=pupil.getExtent(), xl='mm', yl='mm')
     self.plotter.addImagePlot("-> fft to image space", d, extent=(-hfov, hfov, -hfov, hfov), xl="arcsec", yl="arcsec")
     
+    if args.e:
+      from PyQt4.QtGui import QApplication 
+      from editable import editable
+      app = QApplication(sys.argv)	# start app
+      pui = ui()			# create ui instance
+      e = editable(pui, pupil.data)	# create editable instance
+      pupil.data = e.go()		# connect events and exec app
+    
     #  Slice the FoV up and add WFE maps independently for each field.
     #
     slices = []
@@ -144,7 +152,7 @@ class sim():
 	wfe = zwfe(this_wfe_file, self.logger, verbose=verbose)
 	wfe.parse()
 	wfe_h = wfe.getHeader()	
-	wfe_d = wfe.getData(self.EPD, match_pupil=pupil, in_radians=True)							# entrance pupil
+	wfe_d = wfe.getData(match=pupil, wfe_pd=self.EPD, in_radians=True)		# entrance pupil
 	
 	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
@@ -168,7 +176,7 @@ class sim():
 	wfe = zwfe(this_wfe_file, self.logger, verbose=verbose)
 	wfe.parse()
 	wfe_h = wfe.getHeader()	
-	wfe_d = wfe.getData(self.EPD, match_pupil=pupil, in_radians=True)							# entrance pupil
+	wfe_d = wfe.getData(match=pupil, wfe_pd=self.EPD, in_radians=True)		# entrance pupil
 	
 	self.plotter.addImagePlot("wfe (radians)", np.abs(np.fft.fftshift(wfe_d)), extent=pupil.getExtent(), xl='mm', yl='mm')  
 
@@ -265,8 +273,9 @@ def run(args, logger, plotter):
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
-  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/1/config.json", type=str)
+  parser.add_argument("-s", help="simulation parameters file path (.json)", default="/local/home/barnsley/metadata/2/config.json", type=str)
   parser.add_argument("-p", help="plot?", action="store_true")
+  parser.add_argument("-e", help="edit?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
   parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
   parser.add_argument("-fv", help="view cube?", action="store_true")
