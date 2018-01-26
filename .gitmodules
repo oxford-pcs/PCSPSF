@@ -1,0 +1,3 @@
+[submodule "zSpec"]
+	path = zSpec
+	url = https://github.com/oxford-pcs/zSpec.git

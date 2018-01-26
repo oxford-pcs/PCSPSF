@@ -40,28 +40,28 @@ class plotter():
         plt.title(d['title'], fontsize=12)
         nplot = nplot+1
       if d['type'] == 'im':
-	plt.imshow(d['data'], extent=d['extent'], interpolation="none")
-	if d['xl'] is not None:
-	   plt.xlabel(d['xl'], fontsize=12)
-	if d['yl'] is not None:
-	   plt.ylabel(d['yl'], fontsize=12)	   
-	if d['cb']:
-          plt.colorbar()
+        plt.imshow(d['data'], extent=d['extent'], interpolation="none")
+      if d['xl'] is not None:
+        plt.xlabel(d['xl'], fontsize=12)
+      if d['yl'] is not None:
+        plt.ylabel(d['yl'], fontsize=12)	   
+      if d['cb']:
+        plt.colorbar()
       if d['type'] == 'scatter':
-	if d['x'] == None:
-	  plt.plot(d['y'], color=d['color'], linestyle=d['ls'])
-	else:
-	  plt.plot(d['x'], d['y'], color=d['color'], linestyle=d['ls'])
-	if d['xl'] is not None:
-	   plt.xlabel(d['xl'], fontsize=12)
-	if d['yl'] is not None:
-	   plt.ylabel(d['yl'], fontsize=12)
-	if d['xr'] is not None:
-	   plt.xlim(d['xr'])
-	if d['yr'] is not None:
-	   plt.ylim(d['yr'])
+        if d['x'] == None:
+          plt.plot(d['y'], color=d['color'], linestyle=d['ls'])
+        else:
+          plt.plot(d['x'], d['y'], color=d['color'], linestyle=d['ls'])
+        if d['xl'] is not None:
+          plt.xlabel(d['xl'], fontsize=12)
+        if d['yl'] is not None:
+          plt.ylabel(d['yl'], fontsize=12)
+        if d['xr'] is not None:
+          plt.xlim(d['xr'])
+        if d['yr'] is not None:
+          plt.ylim(d['yr'])
       if d['type'] == 'text':
-	plt.text(d['x'], d['y'], d['text'], color=d['color'], fontsize=d['fontsize'])
+        plt.text(d['x'], d['y'], d['text'], color=d['color'], fontsize=d['fontsize'])
 
     plt.tight_layout()
     plt.show()
