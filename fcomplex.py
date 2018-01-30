@@ -6,8 +6,10 @@ def addToPhase(logger, data, p):
   '''
     Add to the phase of [data], and reform as a complex number.
   '''
-  mag = self.getAmplitude()
-  phase = self.getPhase()+p
+  mag = getAmplitude(logger, data)
+  phase = getPhase(logger, data) + p
+  
+
 
   re = mag * np.cos(phase)
   im = mag * np.sin(phase)

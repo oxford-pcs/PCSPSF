@@ -35,7 +35,8 @@ class image(object):
     
   def resample(self, new_pixel_scale, new_FOV, verbose=True):
     '''
-        Resample data to new pixel scale and FOV.
+        Resample data to new pixel scale and FOV. This is an in-place 
+        operation.
     '''
     p_pixel_scale_micron = sf(self.p_pixel_scale*1e6, 4)
     p_new_pixel_scale_micron = sf(new_pixel_scale*1e6, 4)
@@ -172,7 +173,8 @@ class image_circular(image):
      
   def resample(self, new_pixel_scale, new_FOV, verbose=True):
     '''
-        Resample data to new pixel scale and FOV.
+        Resample data to new pixel scale and FOV. This is an in-place 
+        operation.
     '''
     super(image_circular, self).resample(new_pixel_scale, new_FOV, verbose)
   

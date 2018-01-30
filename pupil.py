@@ -4,7 +4,7 @@ from copy import deepcopy
 
 import numpy as np
 
-from util import sf
+from util import resample2d, sf
 from fcomplex import *
 
 class pupil(object):
@@ -12,7 +12,8 @@ class pupil(object):
     This class provides abstraction for all the fields and methods 
     that are non-specific to the geometry of a given pupil.
   '''
-  def __init__(self, logger, sampling, gamma, verbose, data=None):
+  def __init__(self, logger, sampling, gamma, verbose, 
+               data=None):
     self.logger = logger
     self.sampling = sampling # sampling size for pupil (pixels)
     self.gamma = gamma # factor by which to pad grid (=px/resolution element)
@@ -38,7 +39,7 @@ class pupil(object):
     self.data = re + 1j * im
   
   def addToPhase(self, p):
-    addToPhase(self.logger, self.data, p)
+    self.data = addToPhase(self.logger, self.data, p)
     
   def copy(self):
     return pupil(self.logger, self.sampling, self.gamma, verbose=False, 
@@ -66,7 +67,7 @@ class pupil(object):
     '''
     return (-self.physical_gsize/2, self.physical_gsize/2, 
             -self.physical_gsize/2, self.physical_gsize/2)
-    
+ 
   def toConjugateImage(self, wave, camera, shift=True, verbose=False):
     '''
       Move to conjugate image plane.
@@ -113,6 +114,76 @@ class pupil_circular(pupil):
     
     self.data = re + 1j * im
     self.data = np.fft.fftshift(self.data)   
+   
+  def addWFEToPupil(self, WFE_pupil_diameter, WFE_data, WFE_headers, 
+                            in_radians=True, verbose=True):
+    
+    # Get WFE map attributes.
+    #
+    WFE_sampling = WFE_headers['SAMPLING'][0]
+    WFE_pupil_plate_scale = WFE_pupil_diameter / WFE_sampling  # m/px
+    if verbose:
+      self.logger.debug(" WFE map has a plate scale of " + \
+        str(sf(WFE_pupil_plate_scale*1E3, 2)) + "mm/px")
+    
+    # Resample and crop to same plate scale as this pupil.
+    #
+    if WFE_pupil_plate_scale*WFE_sampling<self.pupil_plate_scale*self.sampling:
+      self.logger.critical(" WFE map extent is smaller than matched pupil " + \
+        "extent, this would lead to extrapolation!")
+      exit(0)
+    wfe_s = -(WFE_sampling/2)*WFE_pupil_plate_scale
+    wfe_e = -wfe_s
+    pupil_s = -(self.sampling/2)*self.pupil_plate_scale
+    pupil_e = -pupil_s
+    data = resample2d(WFE_data, wfe_s, wfe_e, WFE_pupil_plate_scale, pupil_s, 
+                      pupil_e, self.pupil_plate_scale, gauss_sig=0)
+      
+    # Need to either pad array (if resampled data shape is smaller than 
+    # matched pupil data shape) or crop (vice versa).
+    #
+    if data.shape[0] == self.data.shape[0]:
+      pass
+    elif data.shape[0] < self.data.shape[0]:
+      # Pad the array to match pupil shape.
+      #
+      # There's a caveat here in that if the size of the pupil is odd, we will
+      # be unable to pad the WFE array evenly. This equates to typically a 
+      # fraction of a percent misalignment in the worst case.
+      #
+      pad_by = (self.gsize-data.shape[0])/2.
+      if data.shape[0] % 2 != 0:
+        pad_by = np.ceil(pad_by) # adds 1 extra column and row of padding
+        data = np.pad(data, int(pad_by), mode='constant')
+        data = data[:-1,:-1] # removes rightmost and bottommost padding
+      else:
+        data = np.pad(data, int(pad_by), mode='constant')
+    else:
+      # Crop the array to match pupil shape.
+      #
+      # See caveat above.
+      #
+      half_pupil_size = self.data.shape[0]/2
+      data = data[(data.shape[0]/2)-half_pupil_size:
+                    (data.shape[0]/2)+half_pupil_size,
+                  (data.shape[0]/2)-half_pupil_size:
+                    (data.shape[0]/2)+half_pupil_size]
+
+    self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data), 2)) + \
+      " waves.")        
+        
+    # Inverse fft shift to match pupil format.
+    #
+    data = np.fft.fftshift(data)
+
+    # Convert to radians from waves, if requested.
+    #
+    if in_radians:
+      data = np.abs(data)*2*np.pi
+    else:
+      data = np.abs(data)*2*np.pi
+      
+    self.addToPhase(data)  
     
   def copy(self):
     return pupil_circular(self.logger, self.sampling, self.gamma,
@@ -129,7 +200,7 @@ class pupil_circular(pupil):
   
   def getAngularDetectorFOV(self, wave):
     return self.getAngularPixelScale(wave)*self.gsize        # radians    
-    
+
   def toConjugateImage(self, wave, camera, shift=True, verbose=False):
     '''
       Move to conjugate image plane.

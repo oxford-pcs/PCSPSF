@@ -1,23 +1,27 @@
 import pylab as plt
 
+from zSpec.spectrograph_config_manager.slit import slit
 from products import cube
 from util import isPowerOfTwo
 from camera import pcamera
 
 class sim():
   def __init__(self, logger, plotter, resampling_im, resampling_pupil, nwaves, 
-               camera, cfg, args):
+               camera, spec, cfg, args):
     self.logger = logger
     self.plotter = plotter
     self.resampling_im = resampling_im
     self.nwaves = nwaves
-    self.camera = camera
+    self.cam = camera
+    self.spec = spec
     self.resampling_pupil = resampling_pupil
     self.nslices = cfg['SLICE_NUMBER_OF']
     self.resel_per_slice = cfg['SLICE_RESEL_PER_SLICE']
     self.resample_to_wavelength = cfg['PUPIL_RESAMPLE_TO_WAVELENGTH']
     self.ADD_CAM_WFE = args.caw
     self.ADD_COL_WFE = args.cow
+    self.slits_file = args.sf
+    self.slit_name = args.s
     
   def run(self, wave, verbose=True): 
     
@@ -49,14 +53,14 @@ class sim():
     # Take a copy of the [resampling_pupil] instance and construct a new image 
     # instance for this wavelength. Although the physical data will be 
     # identical, the resultant pupil and image will have different pixel scales. 
-    # We need to rescale these so they have the same pixel scale as 
+    # We need to rescale the data so it has the same pixel scale as 
     # [resampled_im]. We can then move back to the conjugate pupil plane.
     #
     # We must take a copy of the [resampling_pupil], otherwise this will be 
-    # overwritten when we resample.
+    # overwritten when we resample. Resampling is an in-place operation.
     #
     this_pupil = self.resampling_pupil.copy()
-    this_im = this_pupil.toConjugateImage(wave, self.camera, verbose=True)
+    this_im = this_pupil.toConjugateImage(wave, self.cam, verbose=True)
     this_im.resample(self.resampling_im.p_pixel_scale, 
                      self.resampling_im.p_detector_FOV, verbose=True)
     this_pupil = this_im.toConjugatePupil(verbose=True)
@@ -82,6 +86,23 @@ class sim():
     x_region = range(x_s, x_s + npix_slicer_stack, 1)
     y_region = range(y_s, y_s + npix_slicer_stack, 1)
     
+    # Get field points corresponding to each slice.
+    #
+    slit_pattern = slit(self.slits_file, self.slit_name)
+    pattern_data = slit_pattern.cfg['pattern_data']
+    fields = slit_pattern.getFieldsFromSlitPattern(
+      nfields=pattern_data['n_slitlets'])
+    
+    # Get WFE maps for each component as requested and resample these maps to 
+    # the [resampling_pupil] plate scale.
+    #
+    if self.ADD_CAM_WFE:
+      cam_OA = self.spec.collimator.getOA(fields, float(wave), verbose=False)
+      wfe_cam_d, wfe_cam_h = self.spec.camera.getWFE(cam_OA, float(wave)*1E6,
+                                                     sampling=4)    
+    
+    # Process for each field point.
+    #
     slices = []
     for s in range(self.nslices):	
       this_slice_x_s = x_region[0]
@@ -95,18 +116,25 @@ class sim():
  
       # Move to image plane and take a slice.
       #
-      im = this_pupil.toConjugateImage(wave, self.camera, verbose=False)
+      im = this_pupil.toConjugateImage(wave, self.cam, verbose=False)
       this_slice_im = im.toSlice(this_slice_region, verbose=True)
 
       # Move to pupil plane.
       #
       this_slice_pupil = this_slice_im.toConjugatePupil()
 
-      # TODO: ADD WFE
+      # TODO: Add collimator WFE
+
+      # Add camera WFE
+      #
+      if self.ADD_CAM_WFE:
+        WFE_pupil_diameter = self.spec.camera.getENPD(float(wave)*1E6)
+        wfe = this_slice_pupil.addWFEToPupil(WFE_pupil_diameter,
+                                             wfe_cam_d[s], wfe_cam_h[s])
 
       # Move back to image plane.
       #
-      this_slice_im = this_slice_pupil.toConjugateImage(wave, self.camera, 
+      this_slice_im = this_slice_pupil.toConjugateImage(wave, self.cam, 
                                                         verbose=False)
       this_composite_image.setRegionData(this_slice_region, this_slice_im.data)
           

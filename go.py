@@ -20,7 +20,6 @@ from camera import pcamera
 from products import cube
 from util import sf, readConfigFile, isPowerOfTwo
 from zSpec.spectrograph import Spectrograph
-from zSpec.spectrograph_config_manager.slit import slit
 from zSpec.spectrograph_config_manager.detector import detector 
 from zSpec.zController.Controller import Controller
 
@@ -39,10 +38,8 @@ def run(args, logger, plotter):
   zmx_link = pyz.createLink()
   zcontroller = Controller(zmx_link)
   
-  s = Spectrograph(args.co, args.ca, zcontroller)
+  spec = Spectrograph(args.co, args.ca, zcontroller)
   
-  slit_pattern = slit(args.sf, args.s)
-  pattern_data = slit_pattern.cfg['pattern_data']
   detector_cfg = detector(args.df, args.d)
   detector_data = detector_cfg.cfg['detector_data']
   
@@ -69,7 +66,7 @@ def run(args, logger, plotter):
   # mini pupil is what is being considered here, and we consider this position 
   # to be the start of the simulation.
   #
-  camera_EFFL = s.camera.getEFL(wavelength=cfg['PUPIL_REFERENCE_WAVELENGTH'])
+  camera_EFFL = spec.camera.getEFL(wavelength=cfg['PUPIL_REFERENCE_WAVELENGTH'])
   pupil_physical_diameter = (cfg['PUPIL_REFERENCE_WAVELENGTH']* camera_EFFL)/ \
     (2*float(detector_data['pitch']))
   pupil_physical_radius = (pupil_physical_diameter/2)
@@ -103,7 +100,7 @@ def run(args, logger, plotter):
                                     cfg['PUPIL_GAMMA'], pupil_physical_radius, 
                                     verbose=True) 
   
-  cam_EFL = s.camera.getEFL(wavelength=cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'])
+  cam_EFL = spec.camera.getEFL(wavelength=cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'])
   cam = pcamera(cam_EFL, pupil_physical_radius*2)
   resampling_im = resampling_pupil.toConjugateImage(
     cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'], 
@@ -116,7 +113,7 @@ def run(args, logger, plotter):
   #
   dcube = cube(logger, dshape=resampling_im.data.shape)
   s = sim(logger, plotter, resampling_im, resampling_pupil, len(waves), 
-          cam, cfg, args)  
+          cam, spec, cfg, args)  
   
   for idx, w in enumerate(waves):
     logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + 
@@ -163,7 +160,7 @@ if __name__== "__main__":
   parser.add_argument("-p", help="plot?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
   parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
-  parser.add_argument("-fv", help="view cube?", action="store_true")
+  parser.add_argument("-fv", help="view fits datacube?", action="store_true")
   parser.add_argument("-v", help="verbose", action="store_true")
   parser.add_argument("-caw", help="add WFE error", action="store_true")
   parser.add_argument("-cow", help="add WFE error", action="store_true")
