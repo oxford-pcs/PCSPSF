@@ -9,8 +9,6 @@ def addToPhase(logger, data, p):
   mag = getAmplitude(logger, data)
   phase = getPhase(logger, data) + p
   
-
-
   re = mag * np.cos(phase)
   im = mag * np.sin(phase)
 

@@ -4,6 +4,7 @@ from collections import Counter
 import ConfigParser
 from decimal import *
 import json
+from distutils.util import strtobool
 
 import numpy as np
 import pylab as plt
@@ -29,20 +30,35 @@ def readConfigFile(logger, path):
   c.read(path)
   
   cfg = {} 
-  cfg['OUTPUT_RESAMPLING_FACTOR']     = int(c.get("output", 
-                                                  "resampling_factor"))     
-  cfg['OUTPUT_HFOV']                  = float(c.get("output", "hfov"))    
-  
+
+  cfg['SIM_CAMERA_ZMX_FILE']          = str(c.get("simulation", "camera_zmx_file"))
+  cfg['SIM_COLLIMATOR_ZMX_FILE']      = str(c.get("simulation", "collimator_zmx_file"))
+  cfg['SIM_WAVELENGTH_START']         = Decimal(c.get("simulation", "wavelength_start"))
+  cfg['SIM_WAVELENGTH_END']           = Decimal(c.get("simulation", "wavelength_end")) 
+  cfg['SIM_WAVELENGTH_INTERVAL']      = Decimal(c.get("simulation", "wavelength_interval")) 
+  cfg['SIM_ADD_CAMERA_WFE']           = bool(strtobool(c.get("simulation", "add_camera_WFE"))) 
+  cfg['SIM_ADD_COLLIMATOR_WFE']       = bool(strtobool(c.get("simulation", "add_collimator_WFE"))) 
+  cfg['SIM_SLITS_FILE']               = str(c.get("simulation", "slits_file"))
+  cfg['SIM_SLIT_NAME']                = str(c.get("simulation", "slit_name")) 
+  cfg['SIM_DETECTORS_FILE']           = str(c.get("simulation", "detectors_file")) 
+  cfg['SIM_DETECTOR_NAME']            = str(c.get("simulation", "detector_name")) 
+
   cfg['PUPIL_SAMPLING']               = int(c.get("pupil", "sampling"))
+  cfg['PUPIL_WFE_MAP_SAMPLING']       = int(c.get("pupil", "zemax_WFE_map_sampling"))
   cfg['PUPIL_GAMMA']                  = int(c.get("pupil", "gamma"))
   cfg['PUPIL_REFERENCE_WAVELENGTH']   = float(c.get("pupil", 
                                                     "reference_wavelength"))
   cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'] = Decimal(c.get("pupil", 
                                                       "resample_to_wavelength"))
  
-  cfg['SLICE_NUMBER_OF']              = int(c.get("slicer", "n_slices"))
   cfg['SLICE_RESEL_PER_SLICE']        = float(c.get("slicer", "resel_per_slice"))
   
+  cfg['DET_PIXEL_PITCH']              = float(c.get("detector", "pixel_pitch"))
+
+  cfg['OUTPUT_RESAMPLING_FACTOR']     = int(c.get("output", 
+                                                  "resampling_factor"))     
+  cfg['OUTPUT_HFOV']                  = float(c.get("output", "hfov"))    
+
   return cfg
 
 def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0, 

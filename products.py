@@ -35,14 +35,14 @@ class cube():
     '''
     header = pyfits.Header()    
     
-    if os.path.exists(args.fn):
+    if os.path.exists(args.o):
       if clobber == True:
-        os.remove(args.fn)
+        os.remove(args.o)
       else:
         self.logger.debug("Output filename already exists and clobber" + \
           " is not set.")
         exit(0)
-    self.logger.debug(" Writing output to " + str(args.fn) + ".")
+    self.logger.debug(" Writing output to " + str(args.o) + ".")
   
     data = []
     for im in self.images:
@@ -53,5 +53,5 @@ class cube():
       data.append(im.getAmplitude())
     data = np.array(data)
     
-    pyfits.writeto(args.fn, data, header)
+    pyfits.writeto(args.o, data, header)
 

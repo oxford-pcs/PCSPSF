@@ -115,8 +115,8 @@ class pupil_circular(pupil):
     self.data = re + 1j * im
     self.data = np.fft.fftshift(self.data)   
    
-  def addWFEToPupil(self, WFE_pupil_diameter, WFE_data, WFE_headers, 
-                            in_radians=True, verbose=True):
+  def addWFE(self, WFE_pupil_diameter, WFE_data, WFE_headers, 
+             in_radians=True, verbose=True):
     
     # Get WFE map attributes.
     #

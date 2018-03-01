@@ -16,6 +16,31 @@ class image(object):
     self.wave   = float(wave)
     self.data   = i_data
     self.camera = camera
+
+  def asRegion(self, region, verbose=False):
+    '''
+      Take a region defined by [region] with format [(x_start, x_end), 
+      (y_start, y_end)] and return a new image with the area outside of the 
+      region zeroed.
+    '''
+    slice_x_s = region[0][0]
+    slice_x_e = region[0][1]
+    slice_y_s = region[1][0]
+    slice_y_e = region[1][1]
+    
+    if verbose:
+      self.logger.debug(" Taking region from x = " + str(slice_x_s) + " to " +\
+        str(slice_x_e) + " and y = " + str(slice_y_s) + " to " + \
+        str(slice_y_e) + " pixels")
+      
+    data = deepcopy(self.data)
+    data[:,0:slice_x_s] = 0
+    data[:,slice_x_e:] = 0
+    data[0:slice_y_s,:] = 0
+    data[slice_y_e:,:] = 0    
+    
+    return self.__class__(self.logger, self.pupil, data, self.wave, self.camera, 
+                          verbose)    
   
   def getAmplitude(self, power=False, shift=False, scale="linear", 
                    normalise=False):
@@ -98,31 +123,6 @@ class image(object):
                                self.pupil.gamma, verbose=False, data=p_data)
     return new_pupil    
     
-  def toSlice(self, region, verbose=False):
-    '''
-      Take a region defined by [region] with format [(x_start, x_end), 
-      (y_start, y_end)] and return a new image with the area outside of the 
-      region zeroed.
-    '''
-    slice_x_s = region[0][0]
-    slice_x_e = region[0][1]
-    slice_y_s = region[1][0]
-    slice_y_e = region[1][1]
-    slice_width = slice_y_e - slice_y_s
-    
-    if verbose:
-      self.logger.debug(" Taking slice of width " + str(slice_width) + \
-        " pixels from y = " + str(slice_y_s) + " to " + str(slice_y_e))
-      
-    data = deepcopy(self.data)
-    data[:,0:slice_x_s] = 0
-    data[:,slice_x_e:] = 0
-    data[0:slice_y_s,:] = 0
-    data[slice_y_e:,:] = 0    
-    
-    return self.__class__(self.logger, self.pupil, data, self.wave, self.camera, 
-                          verbose)
-    
 class image_circular(image):
   '''
     Image class corresponding to image of a circular pupil.
@@ -184,15 +184,12 @@ class image_circular(image):
       self.pupil.gamma
     self.pupil.sampling = self.pupil.gsize/self.pupil.gamma
     self.pupil.pupil_plate_scale = self.pupil.physical_gsize/self.pupil.gsize
-      
-    self.p_resolution_element  = self.camera.getLinearResolutionElement(
+    
+    self.p_resolution_element = self.camera.getLinearResolutionElement(
       self.wave)
-    self.p_pixel_scale         = self.camera.getLinearPixelScale(self.wave, 
-                                                                 self.pupil)
-    self.p_detector_FOV        = self.camera.getLinearDetectorFOV(self.wave, 
-                                                                  self.pupil)
-    self.p_airy_disk_d         = self.camera.getLinearAiryDiskDiameter(
-      self.wave)
+    self.p_pixel_scale = self.camera.getLinearPixelScale(self.wave, 
+      (self.wave, self.pupil)
+    self.p_airy_disk_d = self.camera.getLinearAiryDiskDiameter(self.wave)
 
     if verbose:
       self.logger.debug(" Image of circular pupil now has the following " + \

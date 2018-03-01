@@ -20,12 +20,10 @@ from camera import pcamera
 from products import cube
 from util import sf, readConfigFile, isPowerOfTwo
 from zSpec.spectrograph import Spectrograph
-from zSpec.spectrograph_config_manager.detector import detector 
 from zSpec.zController.Controller import Controller
 
 def run(args, logger, plotter):
-  
-  # Read config file and simulation parameters and initial setup.
+  # Read config file for simulation parameters.
   #
   cfg = readConfigFile(logger, args.c)
   xtra_header_keys = {} # used to record RMS phase error for each wavelength
@@ -38,45 +36,42 @@ def run(args, logger, plotter):
   zmx_link = pyz.createLink()
   zcontroller = Controller(zmx_link)
   
-  spec = Spectrograph(args.co, args.ca, zcontroller)
+  spec = Spectrograph(cfg['SIM_COLLIMATOR_ZMX_FILE'], 
+                      cfg['SIM_CAMERA_ZMX_FILE'], zcontroller)
   
-  detector_cfg = detector(args.df, args.d)
-  detector_data = detector_cfg.cfg['detector_data']
-  
-  # Get wavelength range 
+  # Get wavelength range as decimal.
   #
-  waves = np.arange(Decimal(args.ws), Decimal(args.we + args.wi), 
-                    Decimal(args.wi), dtype=Decimal)
+  waves = np.arange(cfg['SIM_WAVELENGTH_START'],
+                    Decimal(cfg['SIM_WAVELENGTH_END'] + \
+                      cfg['SIM_WAVELENGTH_INTERVAL']), 
+                    Decimal(cfg['SIM_WAVELENGTH_INTERVAL']), dtype=Decimal)
   
   # Determine the smallest pupil size (D_pupil) that corresponds to Nyquist 
   # sampling at the detector given a camera focal length, f_cam, and some 
-  # reference wavelength, lambda. As we want to be AT LEAST Nyquist sampled at 
-  # all wavelengths, we really want to ensure that the system is Nyquist 
-  # sampling at the longest wavelength. Doing so means that shorter wavelengths 
-  # will be oversampled. The wavelength at which the pupil is constructed for 
-  # can be adjusted in the configuration file as [pupil.reference_wavelength].
+  # reference wavelength, lambda. As we want to be AT LEAST Nyquist 
+  # sampling at all wavelengths, we really want to ensure that the system is 
+  # Nyquist sampling at the longest wavelength. Doing so means that shorter 
+  # wavelengths will be oversampled. The wavelength at which the pupil is 
+  # constructed for can be adjusted in the configuration file as 
+  # [pupil.reference_wavelength].
   # 
-  # We get D_pupil by equating the spatial size of 2 detector pixels (D_p) with
-  # the spatial size of one resolution element, i.e.
+  # We get [D_pupil], the pupil size for a single slice, by equating the spatial
+  # size of 2 detector pixels (D_p) with the spatial size of one resolution 
+  # element, i.e.
   # 
-  # 2 x D_p = lambda*f_cam / D_pupil
+  #                  2 x D_p = lambda*f_cam / D_pupil
   # 
-  # For a SWIFT-type spectrograph, each slice has its own "mini pupil" which is 
-  # focussed by a microlens to produce the exit slit. The diameter of the this 
-  # mini pupil is what is being considered here, and we consider this position 
-  # to be the start of the simulation.
+  # In this discussion, [D_pupil] corresponds to 
   #
   camera_EFFL = spec.camera.getEFL(wavelength=cfg['PUPIL_REFERENCE_WAVELENGTH'])
   pupil_physical_diameter = (cfg['PUPIL_REFERENCE_WAVELENGTH']* camera_EFFL)/ \
-    (2*float(detector_data['pitch']))
+    (2*float(cfg['DET_PIXEL_PITCH']))
   pupil_physical_radius = (pupil_physical_diameter/2)
   
   xtra_header_keys['EPD'] = (pupil_physical_diameter*1e3, 
                                   "physical entrance pupil diameter (mm)")
   
   # Find parameters with which we will rescale the image.
-  # 
-  # Why?
   #
   # As the angular size of the resolution element is dependent on lambda, 
   # we need to define a reference system through which we can resample each 
@@ -101,7 +96,10 @@ def run(args, logger, plotter):
                                     verbose=True) 
   
   cam_EFL = spec.camera.getEFL(wavelength=cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'])
-  cam = pcamera(cam_EFL, pupil_physical_radius*2)
+  cam_ENPD = spec.camera.getENPD(
+    wavelength=cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'])
+
+  cam = pcamera(cam_EFL, cam_ENPD)
   resampling_im = resampling_pupil.toConjugateImage(
     cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'], 
     cam, verbose=True)
@@ -113,7 +111,7 @@ def run(args, logger, plotter):
   #
   dcube = cube(logger, dshape=resampling_im.data.shape)
   s = sim(logger, plotter, resampling_im, resampling_pupil, len(waves), 
-          cam, spec, cfg, args)  
+          cam, spec, cfg)  
   
   for idx, w in enumerate(waves):
     logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + 
@@ -132,10 +130,10 @@ def run(args, logger, plotter):
   #
   if args.f:
     dcube.write(args, cfg, xtra_header_keys)
-    if args.fv:
+    if args.d:
       import pyds9
       d = pyds9.DS9()
-      d.set("file " + args.fn)
+      d.set("file " + args.o)
       d.set('cmap heat')
       d.set('scale log')
       d.set('zoom 4')
@@ -148,27 +146,16 @@ def run(args, logger, plotter):
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
   parser.add_argument("-c", help="simulation configuration file path (.ini)", default="etc/default.ini", type=str)
-  parser.add_argument("-co", help="camera ZEMAX file", default="C:\\Users\\barnsley\\Google Drive\\Spectrograph_Optics\\collimator60.ZMX")   
-  parser.add_argument("-ca", help="camera ZEMAX file", default="C:\\Users\\barnsley\\Google Drive\\Spectrograph_Optics\\camera70.ZMX")    
-  parser.add_argument("-ws", help="wavelength start (m)", default="650e-9", type=Decimal)
-  parser.add_argument("-we", help="wavelength end (m)", default="1000e-9", type=Decimal)
-  parser.add_argument("-wi", help="wavelength interval (m)", default="175e-9", type=Decimal)
-  parser.add_argument("-s", help="slit name", default="SWIFT")
-  parser.add_argument("-d", help="detector name", default="apogee")
-  parser.add_argument("-sf", help="slits file", default="zSpec\\spectrograph_config_manager\\slits.json")
-  parser.add_argument("-df", help="detector file", default="zSpec\\spectrograph_config_manager\\detectors.json")  
   parser.add_argument("-p", help="plot?", action="store_true")
   parser.add_argument("-f", help="create fits file?", action="store_true")
-  parser.add_argument("-fn", help="filename", action="store", default="cube.fits")
-  parser.add_argument("-fv", help="view fits datacube?", action="store_true")
+  parser.add_argument("-o", help="output filename", action="store", default="cube.fits")
+  parser.add_argument("-d", help="display fits datacube? (-f must be set)", action="store_true")
   parser.add_argument("-v", help="verbose", action="store_true")
-  parser.add_argument("-caw", help="add WFE error", action="store_true")
-  parser.add_argument("-cow", help="add WFE error", action="store_true")
   args = parser.parse_args()
   
   #  Setup logger and plotter.
   #
-  logger = logging.getLogger(args.fn)
+  logger = logging.getLogger(args.o)
   logger.setLevel(logging.DEBUG)
   ch = logging.StreamHandler()
   ch.setLevel(logging.DEBUG)
