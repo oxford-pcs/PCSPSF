@@ -1,34 +1,27 @@
 import pylab as plt
 
-from zSpec.ifu_builder import ifu
+from ifu_builder.ifu import IFU_SWIFT
 from products import cube
 from util import isPowerOfTwo
 
 class sim():
   def __init__(self, logger, plotter, resampling_im, resampling_pupil, nwaves, 
-               camera, spec, cfg):
+               preoptics_reimager, spec, cfg):
     self.logger = logger
     self.plotter = plotter
     self.resampling_im = resampling_im
-    self.nwaves = nwaves
-    self.cam = camera
-    self.spec = spec
     self.resampling_pupil = resampling_pupil
-    self.zemax_WFE_sampling = cfg['PUPIL_WFE_MAP_SAMPLING'] 
-    self.resel_per_slice = cfg['SLICE_RESEL_PER_SLICE']
-    self.resample_to_wavelength = cfg['PUPIL_RESAMPLE_TO_WAVELENGTH']
-    self.slits_file = cfg['SIM_SLITS_FILE']
-    self.slits_name = cfg['SIM_SLIT_NAME']
-    self.add_camera_WFE = cfg['SIM_ADD_CAMERA_WFE']
-    self.add_collimator_WFE = cfg['SIM_ADD_COLLIMATOR_WFE']
+    self.nwaves = nwaves
+    self.preoptics_reimager = preoptics_reimager
+    self.spec = spec
+    self.cfg = cfg
 
   def run(self, wave, verbose=True): 
-    
     self.physical_pupil_diameter = self.resampling_pupil.physical_pupil_diameter
     self.pupil_sampling = self.resampling_pupil.sampling
     self.pupil_gamma = self.resampling_pupil.gamma
     
-    #  Sanity checks.
+    #  Do some sanity checks.
     #
     try:
       int(self.resampling_pupil.sampling)
@@ -62,7 +55,8 @@ class sim():
     # overwritten when we resample. Resampling is an in-place operation.
     #
     this_pupil = self.resampling_pupil.copy()
-    this_im = this_pupil.toConjugateImage(wave, self.cam, verbose=True)
+    this_im = this_pupil.toConjugateImage(wave, self.preoptics_reimager, 
+      verbose=True)
     this_im.resample(self.resampling_im.p_pixel_scale, 
                      self.resampling_im.p_detector_FOV, verbose=True)
     this_pupil = this_im.toConjugatePupil(verbose=True)
@@ -72,10 +66,11 @@ class sim():
     #
     this_composite_image = this_im
 
-    # Load the slit pattern.
+    # Build the IFU.
     #
-    slit_pattern = slit(self.slits_file, self.slits_name)
-    pattern_data = slit_pattern.cfg['pattern_data']
+    ifu = IFU_SWIFT(self.cfg['SIM_PREOPTICS_CFG_NAME'], 
+      self.cfg['SIM_SLICER_CFG_NAME'], self.cfg['SIM_SLIT_CFG_NAME'], 
+      config_dir=self.cfg['SIM_IFU_CONFIGS_DIR_PATH'])
 
     # Slice the field up.
     #
@@ -85,15 +80,14 @@ class sim():
     # slices in the slicer stack and the number of resolution elements per 
     # slice. 
     #
-    print pattern_data['slitlet_length'] * \
-      (1/pattern_data['lenslet_to_stack_magnification']) * \
-      pattern_data['stack_wh_aspect_ratio']
+    print ifu.getEntranceSlitFields(44)
     exit(0)
 
     npix_slice_height = int(self.resampling_pupil.gamma * \
-      self.resel_per_slice) 
+      self.cfg['SLICE_RESEL_PER_SLICE']) 
     npix_slice_width = int(self.resampling_pupil.gamma * \
-      self.resel_per_slice * pattern_data['n_spaxels_per_slitlet'] * \
+      self.cfg['SLICE_RESEL_PER_SLICE'] * \
+      pattern_data['n_spaxels_per_slitlet'] * \
       pattern_data['stack_wh_aspect_ratio'])
 
     x_s = int((this_pupil.data.shape[1]/2) - (npix_slice_width/2))
@@ -113,14 +107,14 @@ class sim():
 
     # Get WFE maps for each component as requested.
     #
-    if self.add_collimator_WFE:
+    if self.cfg['SIM_ADD_COLLIMATOR_WFE']:
       wfe_cam_d, wfe_cam_h = self.spec.collimator.getWFE(fields, float(wave),
-        sampling=self.zemax_WFE_sampling)        
+        sampling=self.cfg['PUPIL_WFE_MAP_SAMPLING'])        
 
-    if self.add_camera_WFE:
+    if self.cfg['SIM_ADD_CAMERA_WFE']:
       cam_OA = self.spec.collimator.getOA(fields, float(wave), verbose=False)
       wfe_cam_d, wfe_cam_h = self.spec.camera.getWFE(cam_OA, float(wave),
-        sampling=self.zemax_WFE_sampling) 
+        sampling=self.cfg['PUPIL_WFE_MAP_SAMPLING']) 
 
     # Process for each field point.
     #
@@ -137,7 +131,8 @@ class sim():
  
       # Move to image plane and take a slice.
       #
-      im = this_pupil.toConjugateImage(wave, self.cam, verbose=False)
+      im = this_pupil.toConjugateImage(wave, self.preoptics_reimager, 
+        verbose=False)
       this_slice_im = im.toRegion(this_slice_region, verbose=True)
 
       # Move back to pupil plane.
@@ -149,7 +144,7 @@ class sim():
 
       # Add camera WFE
       #
-      if self.add_camera_WFE:
+      if self.cfg['SIM_ADD_CAMERA_WFE']:
         self.logger.debug(" Adding camera WFE.")
         WFE_pupil_diameter = self.spec.camera.getENPD(wave)
         wfe = this_slice_pupil.addWFE(WFE_pupil_diameter, wfe_cam_d[s], 
@@ -157,8 +152,8 @@ class sim():
 
       # Move back to image plane.
       #
-      this_slice_im = this_slice_pupil.toConjugateImage(wave, self.cam, 
-                                                        verbose=False)
+      this_slice_im = this_slice_pupil.toConjugateImage(wave, 
+        self.preoptics_reimager, verbose=False)
       this_composite_image.setRegionData(this_slice_region, this_slice_im.data)
           
     return this_composite_image

@@ -90,3 +90,7 @@ ENV/
 
 # FITS
 *.fits
+
+# modules
+ifu_builder
+zSpec

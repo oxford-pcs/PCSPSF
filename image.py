@@ -187,8 +187,7 @@ class image_circular(image):
     
     self.p_resolution_element = self.camera.getLinearResolutionElement(
       self.wave)
-    self.p_pixel_scale = self.camera.getLinearPixelScale(self.wave, 
-      (self.wave, self.pupil)
+    self.p_pixel_scale = self.camera.getLinearPixelScale(self.wave, self.pupil)
     self.p_airy_disk_d = self.camera.getLinearAiryDiskDiameter(self.wave)
 
     if verbose:

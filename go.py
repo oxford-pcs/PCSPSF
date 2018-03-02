@@ -11,16 +11,14 @@ from decimal import *
 
 import pylab as plt
 import numpy as np
-import pyzdde.zdde as pyz    
 
 from simulation import sim
 import plotter
 from pupil import *
-from camera import pcamera
+from reimager import reimager
 from products import cube
 from util import sf, readConfigFile, isPowerOfTwo
 from zSpec.spectrograph import Spectrograph
-from zSpec.zController.Controller import Controller
 
 def run(args, logger, plotter):
   # Read config file for simulation parameters.
@@ -31,13 +29,8 @@ def run(args, logger, plotter):
   
   logger.debug(" Beginning simulation")
   
-  # Create link to Zemax and assemble spectrograph model.
-  #
-  zmx_link = pyz.createLink()
-  zcontroller = Controller(zmx_link)
-  
   spec = Spectrograph(cfg['SIM_COLLIMATOR_ZMX_FILE'], 
-                      cfg['SIM_CAMERA_ZMX_FILE'], zcontroller)
+                      cfg['SIM_CAMERA_ZMX_FILE'])
   
   # Get wavelength range as decimal.
   #
@@ -99,10 +92,11 @@ def run(args, logger, plotter):
   cam_ENPD = spec.camera.getENPD(
     wavelength=cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'])
 
-  cam = pcamera(cam_EFL, cam_ENPD)
+  preoptics_reimager = reimager(cam_EFL, cam_ENPD)
+
   resampling_im = resampling_pupil.toConjugateImage(
     cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'], 
-    cam, verbose=True)
+    preoptics_reimager, verbose=True)
   
   # Init datacube and run simulations for each wavelength.
   # 
@@ -111,7 +105,7 @@ def run(args, logger, plotter):
   #
   dcube = cube(logger, dshape=resampling_im.data.shape)
   s = sim(logger, plotter, resampling_im, resampling_pupil, len(waves), 
-          cam, spec, cfg)  
+          preoptics_reimager, spec, cfg)  
   
   for idx, w in enumerate(waves):
     logger.info(" !!! Processing for a wavelength of " + str(float(w)*1e9) + 
@@ -140,8 +134,6 @@ def run(args, logger, plotter):
     
   duration = time.time()-st
   logger.debug(" This simulation completed in " + str(sf(duration, 4)) + "s.")
-  
-  zmx_link.close()
 
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
