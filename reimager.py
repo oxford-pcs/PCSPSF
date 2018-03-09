@@ -1,10 +1,10 @@
 class reimager():
   '''
     Class to define spatial scales in the image plane given a reimaging focal
-    length [focal_length] and pupil diameter [pupil_diameter]
+    ratio [wfno]
   '''
-  def __init__(self, focal_length, pupil_diameter):
-    self.wfno = focal_length / pupil_diameter
+  def __init__(self, wfno):
+    self.wfno = wfno
 
   def getLinearAiryDiskDiameter(self, wave):
     return 2.44*self.getLinearResolutionElement(wave)         # m

@@ -31,33 +31,29 @@ def readConfigFile(logger, path):
   
   cfg = {} 
 
-  cfg['SIM_CAMERA_ZMX_FILE']          = str(c.get("simulation", "camera_zmx_file"))
-  cfg['SIM_COLLIMATOR_ZMX_FILE']      = str(c.get("simulation", "collimator_zmx_file"))
-  cfg['SIM_WAVELENGTH_START']         = Decimal(c.get("simulation", "wavelength_start"))
-  cfg['SIM_WAVELENGTH_END']           = Decimal(c.get("simulation", "wavelength_end")) 
-  cfg['SIM_WAVELENGTH_INTERVAL']      = Decimal(c.get("simulation", "wavelength_interval")) 
-  cfg['SIM_ADD_CAMERA_WFE']           = bool(strtobool(c.get("simulation", "add_camera_WFE"))) 
-  cfg['SIM_ADD_COLLIMATOR_WFE']       = bool(strtobool(c.get("simulation", "add_collimator_WFE"))) 
-  cfg['SIM_IFU_CONFIGS_DIR_PATH']     = str(c.get("simulation", "ifu_configs_dir"))
-  cfg['SIM_PREOPTICS_CFG_NAME']       = str(c.get("simulation", "preoptics_config_name")) 
-  cfg['SIM_SLICER_CFG_NAME']          = str(c.get("simulation", "slicer_config_name")) 
-  cfg['SIM_SLIT_CFG_NAME']            = str(c.get("simulation", "slit_config_name")) 
+  cfg['SIM_CAMERA_ZMX_FILE']             = str(c.get("simulation", "camera_zmx_file"))
+  cfg['SIM_COLLIMATOR_ZMX_FILE']         = str(c.get("simulation", "collimator_zmx_file"))
+  cfg['SIM_WAVELENGTH_START']            = Decimal(c.get("simulation", "wavelength_start"))
+  cfg['SIM_WAVELENGTH_END']              = Decimal(c.get("simulation", "wavelength_end")) 
+  cfg['SIM_WAVELENGTH_INTERVAL']         = Decimal(c.get("simulation", "wavelength_interval")) 
+  cfg['SIM_ADD_CAMERA_WFE']              = bool(strtobool(c.get("simulation", "add_camera_WFE"))) 
+  cfg['SIM_ADD_COLLIMATOR_WFE']          = bool(strtobool(c.get("simulation", "add_collimator_WFE"))) 
+  cfg['SIM_INSTRUMENT_CONFIGS_DIR_PATH'] = str(c.get("simulation", "inst_configs_dir"))
 
-  cfg['PUPIL_SAMPLING']               = int(c.get("pupil", "sampling"))
-  cfg['PUPIL_WFE_MAP_SAMPLING']       = int(c.get("pupil", "zemax_WFE_map_sampling"))
-  cfg['PUPIL_GAMMA']                  = int(c.get("pupil", "gamma"))
-  cfg['PUPIL_REFERENCE_WAVELENGTH']   = float(c.get("pupil", 
-                                                    "reference_wavelength"))
-  cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'] = Decimal(c.get("pupil", 
-                                                      "resample_to_wavelength"))
+  cfg['PUPIL_SAMPLING']                  = int(c.get("pupil", "sampling"))
+  cfg['PUPIL_WFE_MAP_SAMPLING']          = int(c.get("pupil", "zemax_WFE_map_sampling"))
+  cfg['PUPIL_GAMMA']                     = int(c.get("pupil", "gamma"))
+  cfg['PUPIL_REFERENCE_WAVELENGTH']      = float(c.get("pupil", "reference_wavelength"))
+  cfg['PUPIL_RESAMPLE_TO_WAVELENGTH']    = Decimal(c.get("pupil", "resample_to_wavelength"))
  
-  cfg['SLICE_RESEL_PER_SLICE']        = float(c.get("slicer", "resel_per_slice"))
-  
-  cfg['DET_PIXEL_PITCH']              = float(c.get("detector", "pixel_pitch"))
+  cfg['PREOPTICS_CFG_NAME']              = str(c.get("preoptics", "preoptics_config_name")) 
 
-  cfg['OUTPUT_RESAMPLING_FACTOR']     = int(c.get("output", 
-                                                  "resampling_factor"))     
-  cfg['OUTPUT_HFOV']                  = float(c.get("output", "hfov"))    
+  cfg['IFU_CFG_NAME']                    = str(c.get("ifu", "ifu_config_name")) 
+  cfg['IFU_SLICES_PER_RESEL']            = int(c.get("ifu", "slices_per_resel"))
+
+  cfg['SPECTROGRAPH_CFG_NAME']           = str(c.get("spectrograph", "spectrograph_config_name")) 
+
+  cfg['DETECTOR_CFG_NAME']                = str(c.get("detector", "detector_config_name")) 
 
   return cfg
 
@@ -72,13 +68,13 @@ def resample2d(i_data, i_s, i_e, i_i, o_s, o_e, o_i, kx=3, ky=3, s=0,
     median) and clipping.
   '''
   
-  # calculate bivariate spline, G,  using input grid and data
+  # calculate bivariate spline, G, using input grid and data
   grid_pre_rebin = np.arange(i_s, i_e, i_i)
   G = RectBivariateSpline(grid_pre_rebin, grid_pre_rebin, i_data, kx=kx, ky=ky)
 
   # evaluate this spline at new points on output grid
   grid_x, grid_y = np.mgrid[o_s:o_e:o_i, o_s:o_e:o_i]
-  
+
   data = G.ev(grid_x, grid_y)
   
   if gauss_sig != 0:

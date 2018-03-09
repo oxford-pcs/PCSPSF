@@ -92,5 +92,5 @@ ENV/
 *.fits
 
 # modules
-ifu_builder
+instrument_builder
 zSpec

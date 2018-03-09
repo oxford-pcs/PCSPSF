@@ -115,18 +115,17 @@ class pupil_circular(pupil):
     self.data = re + 1j * im
     self.data = np.fft.fftshift(self.data)   
    
-  def addWFE(self, WFE_pupil_diameter, WFE_data, WFE_headers, 
-             in_radians=True, verbose=True):
+  def addWFE(self, WFE_pupil_diameter, WFE_sampling, WFE_data, 
+    verbose=True):
     
     # Get WFE map attributes.
     #
-    WFE_sampling = WFE_headers['SAMPLING'][0]
     WFE_pupil_plate_scale = WFE_pupil_diameter / WFE_sampling  # m/px
     if verbose:
       self.logger.debug(" WFE map has a plate scale of " + \
         str(sf(WFE_pupil_plate_scale*1E3, 2)) + "mm/px")
-    
-    # Resample and crop to same plate scale as this pupil.
+
+    # Resample to same plate scale as this pupil.
     #
     if WFE_pupil_plate_scale*WFE_sampling<self.pupil_plate_scale*self.sampling:
       self.logger.critical(" WFE map extent is smaller than matched pupil " + \
@@ -136,9 +135,9 @@ class pupil_circular(pupil):
     wfe_e = -wfe_s
     pupil_s = -(self.sampling/2)*self.pupil_plate_scale
     pupil_e = -pupil_s
-    data = resample2d(WFE_data, wfe_s, wfe_e, WFE_pupil_plate_scale, pupil_s, 
-                      pupil_e, self.pupil_plate_scale, gauss_sig=0)
-      
+    data = resample2d(WFE_data, wfe_s, wfe_e, WFE_pupil_plate_scale, wfe_s, 
+      wfe_e, self.pupil_plate_scale)  
+         
     # Need to either pad array (if resampled data shape is smaller than 
     # matched pupil data shape) or crop (vice versa).
     #
@@ -169,19 +168,12 @@ class pupil_circular(pupil):
                   (data.shape[0]/2)-half_pupil_size:
                     (data.shape[0]/2)+half_pupil_size]
 
-    self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data), 2)) + \
-      " waves.")        
-        
+    self.logger.debug(" RMS wavefront error is " + str(sf(np.std(data / \
+      (2*np.pi)), 2)) + " waves.")
+
     # Inverse fft shift to match pupil format.
     #
     data = np.fft.fftshift(data)
-
-    # Convert to radians from waves, if requested.
-    #
-    if in_radians:
-      data = np.abs(data)*2*np.pi
-    else:
-      data = np.abs(data)*2*np.pi
       
     self.addToPhase(data)  
     

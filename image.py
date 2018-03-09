@@ -10,24 +10,19 @@ class image(object):
     This class provides abstraction for all the fields and methods 
     that are non-specific to the geometry of a given image.
   '''
-  def __init__(self, logger, pupil, i_data, wave, camera, verbose):
+  def __init__(self, logger, pupil, i_data, wave, reimager, verbose):
     self.logger = logger
     self.pupil  = pupil
     self.wave   = float(wave)
     self.data   = i_data
-    self.camera = camera
+    self.reimager = reimager
 
-  def asRegion(self, region, verbose=False):
+  def asRegion(self, slice_x_s, slice_x_e, slice_y_s, slice_y_e, verbose=False):
     '''
-      Take a region defined by [region] with format [(x_start, x_end), 
-      (y_start, y_end)] and return a new image with the area outside of the 
+      Take a region defined by [slice_x_s], [slice_x_e], [slice_y_s], 
+      [slice_y_e] and return a new image with the area outside of the 
       region zeroed.
-    '''
-    slice_x_s = region[0][0]
-    slice_x_e = region[0][1]
-    slice_y_s = region[1][0]
-    slice_y_e = region[1][1]
-    
+    ''' 
     if verbose:
       self.logger.debug(" Taking region from x = " + str(slice_x_s) + " to " +\
         str(slice_x_e) + " and y = " + str(slice_y_s) + " to " + \
@@ -39,8 +34,8 @@ class image(object):
     data[0:slice_y_s,:] = 0
     data[slice_y_e:,:] = 0    
     
-    return self.__class__(self.logger, self.pupil, data, self.wave, self.camera, 
-                          verbose)    
+    return self.__class__(self.logger, self.pupil, data, self.wave, 
+      self.reimager, verbose=False)    
   
   def getAmplitude(self, power=False, shift=False, scale="linear", 
                    normalise=False):
@@ -58,18 +53,15 @@ class image(object):
     return getImagComponent(self.logger, self.data, shift=shift, 
                             normalise=normalise)
     
-  def resample(self, new_pixel_scale, new_FOV, verbose=True):
+  def resample(self, new_pixel_scale, verbose=True):
     '''
-        Resample data to new pixel scale and FOV. This is an in-place 
-        operation.
+      Resample data to new pixel scale. This is an in-place operation.
     '''
     p_pixel_scale_micron = sf(self.p_pixel_scale*1e6, 4)
     p_new_pixel_scale_micron = sf(new_pixel_scale*1e6, 4)
     
-    if np.isclose(self.p_pixel_scale, new_pixel_scale) and \
-      np.isclose(self.p_detector_FOV, new_FOV):
-      if verbose:
-        self.logger.debug(" Resampling not required as pixel scales are " + \
+    if np.isclose(self.p_pixel_scale, new_pixel_scale):
+      self.logger.debug(" Resampling not required as pixel scales are " + \
                           "the same")
     else:
       if verbose:
@@ -89,27 +81,25 @@ class image(object):
             self.logger.critical(" Checking to see if all imaginary parts " + \
               "are zero... FAIL")
           exit(0)
-    self.data = np.real(self.data)
-    
-    # resample data
-    self.data = resample2d(self.data, -self.p_detector_FOV/2., 
-                           self.p_detector_FOV/2., self.p_pixel_scale, 
-                           -new_FOV/2., new_FOV/2., new_pixel_scale)
-      
-    # convert back to complex
-    self.data = self.data.astype(dtype=complex)
 
-  def setRegionData(self, region, data):
+      self.data = np.real(self.data)
+    
+      # resample data
+      new_FOV = new_pixel_scale * self.data.shape[0]
+      self.data = resample2d(self.data, -self.p_detector_FOV/2., 
+        self.p_detector_FOV/2., self.p_pixel_scale, -new_FOV/2., new_FOV/2., 
+        new_pixel_scale)
+        
+      # convert back to complex
+      self.data = self.data.astype(dtype=complex)
+
+  def setRegionData(self, slice_x_s, slice_x_e, slice_y_s, slice_y_e, data):
     '''
-      Set the data [self.data] in the region [region] with format 
-      [(x_start, x_end), (y_start, y_end)] to [data].
+      Set the data [self.data] in the region defined by [slice_x_s], 
+      [slice_x_e], [slice_y_s], [slice_y_e] to [data].
     '''
-    region_x_s = region[0][0]
-    region_x_e = region[0][1]
-    region_y_s = region[1][0]
-    region_y_e = region[1][1]
-    self.data[region_y_s:region_y_e, region_x_s:region_x_e] = \
-    data[region_y_s:region_y_e, region_x_s:region_x_e]
+    self.data[slice_y_s:slice_y_e, slice_x_s:slice_x_e] = \
+    data[slice_y_s:slice_y_e, slice_x_s:slice_x_e]
 
   def toConjugatePupil(self, ishift=True, verbose=False):  
     '''
@@ -120,33 +110,33 @@ class image(object):
       p_data = np.fft.ifftshift(self.data)   
     p_data = np.fft.ifft2(p_data)
     new_pupil = pupil_circular(self.pupil.logger, self.pupil.sampling, 
-                               self.pupil.gamma, verbose=False, data=p_data)
+      self.pupil.gamma, verbose=False, data=p_data)
     return new_pupil    
     
 class image_circular(image):
   '''
     Image class corresponding to image of a circular pupil.
   '''  
-  def __init__(self, logger, pupil, i_data, wave, camera, verbose):
-    super(image_circular, self).__init__(logger, pupil, i_data, wave, camera, 
+  def __init__(self, logger, pupil, i_data, wave, reimager, verbose):
+    super(image_circular, self).__init__(logger, pupil, i_data, wave, reimager, 
                                          verbose)
     
-    self.p_resolution_element  = camera.getLinearResolutionElement(wave)
-    self.p_pixel_scale         = camera.getLinearPixelScale(wave, pupil)
-    self.p_detector_FOV        = camera.getLinearDetectorFOV(wave, pupil)
-    self.p_airy_disk_d         = camera.getLinearAiryDiskDiameter(wave)
-    
+    self.p_resolution_element  = reimager.getLinearResolutionElement(wave)
+    self.p_pixel_scale         = reimager.getLinearPixelScale(wave, pupil)
+    self.p_detector_FOV        = reimager.getLinearDetectorFOV(wave, pupil)
+    self.p_airy_disk_d         = reimager.getLinearAiryDiskDiameter(wave)
+
     if verbose:
       logger.debug(" The image for a wavelength of " + \
-        sf(self.wave*10**9, 4) + "nm and a camera with a focal ratio of " + \
-          sf(camera.wfno, 3) + " has the following properties: ")
+        sf(self.wave*10**9, 4) + "nm and a reimager with a focal ratio of " + \
+          sf(reimager.wfno, 3) + " has the following properties: ")
       self._printHumanReadableProperties()
-    
+
   def _printHumanReadableProperties(self):
     a_resolution_element_asec = sf(np.degrees(
     self.pupil.getAngularResolutionElement(self.wave)*3600),4)
     p_resolution_element_micron = sf(self.p_resolution_element*1e6, 4)
-    
+
     a_pixel_scale_asec = sf(np.degrees(
       self.pupil.getAngularPixelScale(self.wave)*3600), 4)
     p_pixel_scale_micron = sf(self.p_pixel_scale*1e6, 4)
@@ -159,24 +149,21 @@ class image_circular(image):
       self.pupil.getAngularAiryDiskDiameter(self.wave)*3600), 4) 
     
     p_airy_disk_d_micron = sf(self.p_airy_disk_d*1e6, 4)
-    
-    self.logger.debug(" -> " + a_resolution_element_asec + "\"" + \
-        " (" + p_resolution_element_micron + " micron)" + \
-          " per resolution element lambda/D")
-    self.logger.debug(" -> " + a_pixel_scale_asec + "\"" + " (" + \
-      p_pixel_scale_micron + " micron)" + " per pixel, with gamma=" + \
-        str(sf(self.pupil.gamma, 2)) + " pixels per resolution element")
-    self.logger.debug(" -> a detector FoV of " + a_detector_FOV_asec + "\"" + \
-        " (" + p_detector_FOV_micron + " micron)")
-    self.logger.debug(" -> an airy disk diameter of " + a_airy_disk_d_asec + \
-        "\"" + " (" + p_airy_disk_d_micron + " micron)")
+
+    self.logger.debug(" -> " + p_resolution_element_micron + " micron" + \
+          " per resolution element")
+    self.logger.debug(" -> " + p_pixel_scale_micron + " micron" + \
+      " per pixel, with gamma=" + str(sf(self.pupil.gamma, 4)) + \
+      " pixels per resolution element")
+    self.logger.debug(" -> a FoV of " + p_detector_FOV_micron + " micron")
+    self.logger.debug(" -> an airy disk diameter of " + \
+      p_airy_disk_d_micron + " micron")
      
-  def resample(self, new_pixel_scale, new_FOV, verbose=True):
+  def resample(self, new_pixel_scale, verbose=True):
     '''
-        Resample data to new pixel scale and FOV. This is an in-place 
-        operation.
+        Resample data to new pixel scale. This is an in-place operation.
     '''
-    super(image_circular, self).resample(new_pixel_scale, new_FOV, verbose)
+    super(image_circular, self).resample(new_pixel_scale, verbose)
   
     # change pupil and image parameters to reflect rescale
     self.pupil.gamma = self.p_resolution_element/new_pixel_scale
@@ -185,10 +172,13 @@ class image_circular(image):
     self.pupil.sampling = self.pupil.gsize/self.pupil.gamma
     self.pupil.pupil_plate_scale = self.pupil.physical_gsize/self.pupil.gsize
     
-    self.p_resolution_element = self.camera.getLinearResolutionElement(
+    self.p_resolution_element = self.reimager.getLinearResolutionElement(
       self.wave)
-    self.p_pixel_scale = self.camera.getLinearPixelScale(self.wave, self.pupil)
-    self.p_airy_disk_d = self.camera.getLinearAiryDiskDiameter(self.wave)
+    self.p_pixel_scale = self.reimager.getLinearPixelScale(self.wave, 
+      self.pupil)
+    self.p_detector_FOV = self.reimager.getLinearDetectorFOV(self.wave, 
+      self.pupil)
+    self.p_airy_disk_d = self.reimager.getLinearAiryDiskDiameter(self.wave)
 
     if verbose:
       self.logger.debug(" Image of circular pupil now has the following " + \
@@ -204,8 +194,8 @@ class image_circular(image):
       p_data = np.fft.ifftshift(self.data)   
     p_data = np.fft.ifft2(p_data)
     new_pupil = pupil_circular(self.pupil.logger, self.pupil.sampling, 
-                          self.pupil.gamma, self.pupil.physical_pupil_radius, 
-                          verbose=False, data=p_data)
+      self.pupil.gamma, self.pupil.physical_pupil_radius, 
+      verbose=False, data=p_data)
     return new_pupil          
       
 
