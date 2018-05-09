@@ -3,6 +3,7 @@
 from copy import deepcopy
 
 import numpy as np
+import pylab as plt
 
 from util import resample2d, sf
 from fcomplex import *
@@ -63,7 +64,7 @@ class pupil(object):
       
   def getExtent(self):
     ''' 
-      Returns an extent with real units for image plots.
+      Returns an extent with physical units.
     '''
     return (-self.physical_gsize/2, self.physical_gsize/2, 
             -self.physical_gsize/2, self.physical_gsize/2)
@@ -137,7 +138,7 @@ class pupil_circular(pupil):
     pupil_e = -pupil_s
     data = resample2d(WFE_data, wfe_s, wfe_e, WFE_pupil_plate_scale, wfe_s, 
       wfe_e, self.pupil_plate_scale)  
-         
+
     # Need to either pad array (if resampled data shape is smaller than 
     # matched pupil data shape) or crop (vice versa).
     #

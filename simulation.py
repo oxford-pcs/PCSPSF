@@ -109,7 +109,7 @@ class sim():
     if self.cfg['SIM_ADD_CAMERA_WFE']:
       cam_OA = self.zspec.collimator.getOA(fields, float(wave), verbose=False)
       wfe_cam_d, wfe_cam_h = self.zspec.camera.getWFE(cam_OA, float(wave),
-        sampling=self.cfg['PUPIL_WFE_MAP_SAMPLING']) 
+        sampling=self.cfg['PUPIL_WFE_MAP_SAMPLING'])
 
     # For each slice ..
     #
@@ -130,7 +130,7 @@ class sim():
       #
       this_slice_pupil = this_slice_im.toConjugatePupil()
 
-      # Add camera WFE
+      # Add collimator WFE
       #
       if self.cfg['SIM_ADD_COLLIMATOR_WFE']:
         if verbose:

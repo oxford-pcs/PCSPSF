@@ -1,6 +1,7 @@
 #!/usr/local/bin/python
 # -*- coding: utf-8 -*-
 import numpy as np
+import pylab as plt
 
 from util import sf, resample2d
 from fcomplex import *
@@ -24,7 +25,7 @@ class image(object):
       region zeroed.
     ''' 
     if verbose:
-      self.logger.debug(" Taking region from x = " + str(slice_x_s) + " to " +\
+      self.logger.debug(" Taking region from x = " + str(slice_x_s) + " to " + \
         str(slice_x_e) + " and y = " + str(slice_y_s) + " to " + \
         str(slice_y_e) + " pixels")
       

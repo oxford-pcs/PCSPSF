@@ -25,7 +25,7 @@ def run(args, logger, plotter):
   # Read config file for simulation parameters.
   #
   cfg = readConfigFile(logger, args.c)
-  xtra_header_keys = {} # used to record RMS phase error for each wavelength
+  xtra_header_keys = {}
   st = time.time()
   
   logger.debug(" Beginning simulation")
@@ -35,7 +35,7 @@ def run(args, logger, plotter):
   zspec = zSpectrograph(cfg['SIM_COLLIMATOR_ZMX_FILE'], 
     cfg['SIM_CAMERA_ZMX_FILE'])
 
-  # Build the instrument.
+  # Build the instrument using the instrument_builder package.
   #
   # Although we construct the components from the configuration files, we 
   # override some attributes.
@@ -51,7 +51,7 @@ def run(args, logger, plotter):
     cfg['DETECTOR_CFG_NAME'], 
     config_dir=cfg['SIM_INSTRUMENT_CONFIGS_DIR_PATH'],
     logger=logger)
-
+  
   zspec_attr = zspec.getSystemAttr(cfg['PUPIL_REFERENCE_WAVELENGTH'])
   instrument.spectrograph.cfg['camera_EFFL'] = zspec_attr['camera_EFFL']
   instrument.spectrograph.cfg['collimator_EFFL'] = zspec_attr['collimator_EFFL']
