@@ -15,9 +15,9 @@ In brief, for each wavelength within the range specified:
 1. A dummy telescope pupil is created
 2. The conjugate image of this pupil is constructed
 3. The image is sliced up, and for each slice
-  * The image is moved into pupil space
-  * The WFE from the collimator and/or camera are added by addition of the corresponding Zemax phase maps corresponding to the field position for each slice
-  * The resulting aberrated pupil is moved back into image space
+	1. The image is moved into pupil space
+	2. The WFE from the collimator and/or camera are added by addition of the corresponding Zemax phase maps corresponding to the field position for each slice
+	3. The resulting aberrated pupil is moved back into image space
 4. All slices are stitched together to make the composite image
 
 ## Dependencies
@@ -68,8 +68,6 @@ Both of the bases classes and their children have a method allowing movement bet
 The `instrument_builder` package is used to determine the entrance slit positions for calculation of WFE. More details can be found in its README, but modularising this into another package allows for different arrangements of the IFU exit slit to be considered.
 
 The `zSpec` package is used to retrieve the WFE maps from Zemax programatically. Communication is made via the `PyZDDE`interface, not the ZOS-API.
-
-The code is heavily commented in-line.
 
 ## Configuration
 
