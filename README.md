@@ -1,8 +1,8 @@
 # PCSPSF
 
 <div style="text-align: center">
-	<img src="examples/nowfe.gif" alt="drawing" style="width: 400px;"/>
-	<img src="examples/wfe.gif" alt="drawing" style="width: 400px;"/>
+	<img src="examples/nowfe.gif" alt="no wfe" width="400"/>
+	<img src="examples/wfe.gif" alt="wfe" width="400""/>
 </div>
 
 ## Overview
