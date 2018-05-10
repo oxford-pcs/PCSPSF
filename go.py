@@ -24,8 +24,8 @@ from instrument_builder import SWIFT_like
 def run(args, logger, plotter):
   # Read config file for simulation parameters.
   #
-  cfg = readConfigFile(logger, args.c)
-  xtra_header_keys = {}
+  cfg = readConfigFile(logger, args.i)
+  xtra_header_keys = {} # dict of extra keys and values for FITS header
   st = time.time()
   
   logger.debug(" Beginning simulation")
@@ -38,12 +38,13 @@ def run(args, logger, plotter):
   # Build the instrument using the instrument_builder package.
   #
   # Although we construct the components from the configuration files, we 
-  # override some attributes.
+  # override some attributes to both ensure consistency and accept some 
+  # limitations of the current version.
   #
-  # -> Assign camera/collimator EFFL to match Zemax models.
-  # -> Set the preoptics anamorphic magnification to 1
+  # -> Assign camera/collimator EFFL to directly match the Zemax models.
   # -> Set the preoptics WFNO such that a spatial resolution element spans 
-  #    [slices_per_resel] slices.
+  #    [IFU_SLICES_PER_RESEL] slices.
+  # -> Set the preoptics anamorphic magnification to 1
   # 
   instrument = SWIFT_like(cfg['PREOPTICS_CFG_NAME'], 
     cfg['IFU_CFG_NAME'], 
@@ -51,14 +52,16 @@ def run(args, logger, plotter):
     cfg['DETECTOR_CFG_NAME'], 
     config_dir=cfg['SIM_INSTRUMENT_CONFIGS_DIR_PATH'],
     logger=logger)
-  
+
   zspec_attr = zspec.getSystemAttr(cfg['PUPIL_REFERENCE_WAVELENGTH'])
+
   instrument.spectrograph.cfg['camera_EFFL'] = zspec_attr['camera_EFFL']
   instrument.spectrograph.cfg['collimator_EFFL'] = zspec_attr['collimator_EFFL']
 
   instrument.preoptics.cfg['magnification_across_slices'] = \
     instrument.preoptics.cfg['magnification_along_slices']
 
+  # following assumes diffraction-limited reimaging performance
   instrument.preoptics.cfg['WFNO'] = cfg['IFU_SLICES_PER_RESEL'] * \
     instrument.ifu.cfg['slice_width_physical'] / \
     cfg['PUPIL_REFERENCE_WAVELENGTH']
@@ -74,8 +77,7 @@ def run(args, logger, plotter):
 
   # Determine the smallest pupil size (D_pupil) that corresponds to Nyquist 
   # sampling at the detector given a camera focal length, f_cam, and some 
-  # reference wavelength, lambda. This overrides any pupil diameter set in 
-  # the preoptics.
+  # reference wavelength, lambda. 
   #
   # As we want to be AT LEAST Nyquist sampling at all wavelengths, we really
   # want to ensure that the system is Nyquist sampling at the shortest 
@@ -124,12 +126,12 @@ def run(args, logger, plotter):
     cfg['PUPIL_RESAMPLE_TO_WAVELENGTH'], 
     preoptics_reimager, verbose=True)
   
-  # Init datacube and run simulations for each wavelength.
+  # Initialise datacube and run simulations for each wavelength.
   # 
   # The result from a simulation is an image instance which we can append 
   # to the datacube.
   #
-  dcube = cube(logger, dshape=resampling_im.data.shape)
+  dcube = cube(logger)
   s = sim(logger, plotter, resampling_im, resampling_pupil, len(waves), 
           preoptics_reimager, zspec, cfg, instrument)  
   
@@ -148,27 +150,28 @@ def run(args, logger, plotter):
     
   # Make and view output.
   #
-  if args.f:
-    dcube.write(args, cfg, xtra_header_keys)
-    if args.d:
-      import pyds9
-      d = pyds9.DS9()
-      d.set("file " + args.o)
-      d.set('cmap heat')
-      d.set('scale log')
-      d.set('zoom 4')
-    
+  # Note that pyds9 interaction only works with systems with the XPA protocol 
+  # installed, and i've yet to find a way to get this working on a Windows box.
+  # 
+  dcube.write(args, cfg, xtra_header_keys)
+  if args.d:
+    import pyds9
+    d = pyds9.DS9()
+    d.set("file " + args.f)
+    d.set('cmap heat')
+    d.set('scale log')
+    d.set('zoom 4')
+  
   duration = time.time()-st
   logger.debug(" This simulation completed in " + str(sf(duration, 4)) + "s.")
 
 if __name__== "__main__":
   parser = argparse.ArgumentParser()
-  parser.add_argument("-c", help="simulation configuration file path (.ini)", 
+  parser.add_argument("-i", help="simulation configuration file path (.ini)", 
     default="etc/default.ini", type=str)
-  parser.add_argument("-p", help="plot?", action="store_true")
-  parser.add_argument("-f", help="create fits file?", action="store_true")
-  parser.add_argument("-o", help="output filename", action="store", 
+  parser.add_argument("-f", help="output filename", action="store", 
     default="cube.fits")
+  parser.add_argument("-c", help="clobber output file?", action="store_true")  
   parser.add_argument("-d", help="display fits datacube? (-f must be set)", 
     action="store_true")
   parser.add_argument("-v", help="verbose", action="store_true")
@@ -176,7 +179,7 @@ if __name__== "__main__":
   
   #  Setup logger and plotter.
   #
-  logger = logging.getLogger(args.o)
+  logger = logging.getLogger(args.f)
   logger.setLevel(logging.DEBUG)
   ch = logging.StreamHandler()
   ch.setLevel(logging.DEBUG)

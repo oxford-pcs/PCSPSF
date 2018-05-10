@@ -1,7 +1,7 @@
 import numpy as np
 import pylab as plt
 
-from products import cube
+from products import cslice, cube
 from util import isPowerOfTwo
 
 class sim():
@@ -61,11 +61,6 @@ class sim():
     this_im.resample(self.resampling_im.p_pixel_scale, verbose=True)
     this_pupil = this_im.toConjugatePupil(verbose=True)
 
-    # Assign this as the composite image. This instance will be used to 
-    # construct the final image from a series of slices.
-    #
-    this_composite_image = this_im
-
     # Slice the field up.
     #
     # We use only a central section of the reimaged slicing FoV.
@@ -111,9 +106,15 @@ class sim():
       wfe_cam_d, wfe_cam_h = self.zspec.camera.getWFE(cam_OA, float(wave),
         sampling=self.cfg['PUPIL_WFE_MAP_SAMPLING'])
 
-    # For each slice ..
+    # Instantiate an empty (datacube slice) cslice product.
     #
-    slices = []
+    x_region_size = np.max(x_region) - np.min(x_region)
+    y_region_size = np.max(y_region) - np.min(y_region)
+    this_cube_slice = cslice(self.logger, np.zeros((y_region_size, 
+      x_region_size)))
+
+    # For each slice from the image-slicer..
+    #
     s_idx = 1
     for this_x_region, this_y_region in zip(x_region, y_region):
       self.logger.debug(" Considering slice " + str(s_idx) + " of " + \
@@ -125,6 +126,8 @@ class sim():
         verbose=False)
       this_slice_im = im.asRegion(this_x_region[0], this_x_region[1], \
         this_y_region[0], this_y_region[1], verbose=True)
+
+      flux_before = np.sum(this_slice_im.getAmplitude())
 
       # Move back to pupil plane.
       #
@@ -150,13 +153,24 @@ class sim():
         wfe = this_slice_pupil.addWFE(WFE_pupil_diameter, WFE_sampling, 
           wfe_cam_d[s])
 
-      # Move back to image plane and overwrite this slice region.
+      # Move back to image plane and append the data from this slice to the 
+      # cube slice data
       #
       this_slice_im = this_slice_pupil.toConjugateImage(wave, 
         self.preoptics_reimager, verbose=False)
-      this_composite_image.setRegionData(this_x_region[0], this_x_region[1], \
-        this_y_region[0], this_y_region[1], this_slice_im.data)
+
+      flux_after = np.sum(this_slice_im.getAmplitude())
+
+      conservation_factor = flux_before / flux_after 
+
+      this_cube_slice.setRegionData(
+        0, this_cube_slice.data.shape[1],
+        0, this_cube_slice.data.shape[0],
+        this_slice_im.getAmplitude()[np.min(y_region):np.max(y_region), \
+        np.min(x_region):np.max(x_region)]*conservation_factor, append=True)
 
       s_idx+=1
-    return this_composite_image
+
+
+    return this_cube_slice
     

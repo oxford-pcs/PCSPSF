@@ -94,14 +94,19 @@ class image(object):
       # convert back to complex
       self.data = self.data.astype(dtype=complex)
 
-  def setRegionData(self, slice_x_s, slice_x_e, slice_y_s, slice_y_e, data):
+  def setRegionData(self, slice_x_s, slice_x_e, slice_y_s, slice_y_e, data, 
+    append=False):
     '''
       Set the data [self.data] in the region defined by [slice_x_s], 
       [slice_x_e], [slice_y_s], [slice_y_e] to [data].
     '''
-    self.data[slice_y_s:slice_y_e, slice_x_s:slice_x_e] = \
-    data[slice_y_s:slice_y_e, slice_x_s:slice_x_e]
-
+    if append:
+      self.data[slice_y_s:slice_y_e, slice_x_s:slice_x_e] += \
+      data[slice_y_s:slice_y_e, slice_x_s:slice_x_e]
+    else:
+      self.data[slice_y_s:slice_y_e, slice_x_s:slice_x_e] = \
+      data[slice_y_s:slice_y_e, slice_x_s:slice_x_e]
+      
   def toConjugatePupil(self, ishift=True, verbose=False):  
     '''
       Move back to conjugate pupil plane.

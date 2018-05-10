@@ -7,23 +7,29 @@ class plotter():
   def __init__(self):
     self.PLOTDATA = []		# plot information
     
-  def addImagePlot(self, title, data, cb=True, extent=None, xl=None, yl=None, overplot=False):
+  def addImagePlot(self, title, data, cb=True, extent=None, xl=None, yl=None, 
+    overplot=False):
     ''' 
       Add image data to plot.
     '''
-    self.PLOTDATA.append({"title": title, "data": deepcopy(data), "cb": cb, "type": "im", "extent": extent, "xl": xl, "yl": yl, "overplot": overplot})
+    self.PLOTDATA.append({"title": title, "data": deepcopy(data), "cb": cb, 
+      "type": "im", "extent": extent, "xl": xl, "yl": yl, "overplot": overplot})
       
-  def addScatterPlot(self, title, y, x=None, color='w', ls='--', cb=True, xl=None, yl=None, xr=None, yr=None, overplot=False):  
+  def addScatterPlot(self, title, y, x=None, color='w', ls='--', cb=True, 
+    xl=None, yl=None, xr=None, yr=None, overplot=False):  
     ''' 
       Add xy scatter data to plot.
     '''
-    self.PLOTDATA.append({"title": title, "x": deepcopy(x), "y": deepcopy(y), "color": color, "ls": ls, "cb": cb, "type": "scatter", "xl": xl, "yl": yl, "xr": xr, "yr": yr, "overplot": overplot})
+    self.PLOTDATA.append({"title": title, "x": deepcopy(x), "y": deepcopy(y), 
+      "color": color, "ls": ls, "cb": cb, "type": "scatter", "xl": xl, "yl": yl,
+      "xr": xr, "yr": yr, "overplot": overplot})
       
   def addTextToPlot(self, x, y, s, color='w', fontsize=12): 
     ''' 
       Add text data to plot.
     '''
-    self.PLOTDATA.append({"x": x, "y": y, "text": s, "color": color, "fontsize": fontsize, "type": "text", "overplot": True})
+    self.PLOTDATA.append({"x": x, "y": y, "text": s, "color": color, 
+      "fontsize": fontsize, "type": "text", "overplot": True})
       
   def _reset(self):
     self.__init__()
@@ -61,7 +67,8 @@ class plotter():
         if d['yr'] is not None:
           plt.ylim(d['yr'])
       if d['type'] == 'text':
-        plt.text(d['x'], d['y'], d['text'], color=d['color'], fontsize=d['fontsize'])
+        plt.text(d['x'], d['y'], d['text'], color=d['color'], 
+          fontsize=d['fontsize'])
 
     plt.tight_layout()
     plt.show()
